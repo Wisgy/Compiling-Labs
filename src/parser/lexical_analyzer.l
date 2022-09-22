@@ -27,15 +27,15 @@ void pass_node(char *text){
  /*. { pos_start = pos_end; pos_end++; return ERROR; }*/
 
  /****请在此补全所有flex的模式与动作  end******/
- /*Keyword*/
+
 "if" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return IF;}
 "else" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return ELSE;} 
 "int" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return TYPE_INT;}
-"float" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return TYPE_FLOAT:}
+"float" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return TYPE_FLOAT;}
 "void" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return TYPE_VOID;}
 "return" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RETURN;}
 "while" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return WHILE;}
- /*SpecialSymbols*/
+
 \- {pos_start = pos_end; pos_end += 1; pass_node(yytext); return MINUS;}
 \* {pos_start = pos_end; pos_end += 1; pass_node(yytext); return STAR;}
 \/ {pos_start = pos_end; pos_end += 1; pass_node(yytext); return DIV;}
@@ -56,9 +56,10 @@ void pass_node(char *text){
 \} {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RC;}
 "/*" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LCOMMENT;}
 "*/" {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RCOMMENT;}
- /*COMMON*/
+
 0|([1-9][0-9]*) {pos_start = pos_end; pos_end += 1; pass_node(yytext); return INTEGER;} 
 0|([1-9][0-9]*).[0-9]+ {pos_start = pos_end; pos_end += 1; pass_node(yytext); return FLOATPOINT;}
 [a-z_A-Z][a-z_A-Z0-9]* {pos_start = pos_end; pos_end += 1; pass_node(yytext); return ID;}
+
 %%
 
