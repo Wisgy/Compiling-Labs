@@ -62,7 +62,7 @@ void pass_node(char *text){
 " "|\t {pos_end+=yyleng;}
 \r\n|\r|\n {lines++;pos_end = 0;}
 
-\/\*(?:[^\*]|\*+[^\/\*])*\*+\/ {}
+\/\*([^\*]|\*+[^\/])*\*+\/ {}
 
 
 . { pos_start = pos_end; pos_end++; return ERROR; }
