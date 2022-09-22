@@ -61,12 +61,10 @@ syntax_tree_node *node(const char *node_name, int children_num, ...);
 %token <node> RB
 %token <node> LC
 %token <node> RC
-%token <node> LCOMMENT
-%token <node> RCOMMENT
 %token <node> INTEGER
 %token <node> FLOATPOINT
 %token <node> ID
-%token <node> empty
+%token <node> COMMENT
 %type <node> program 
 
 
@@ -109,16 +107,16 @@ param: type-specifier ID {$<node>$ = node("param", 2, $<node>1, $2);}
 compound-stmt: LC local-declarations statement-list RC {$<node>$ = node("compound-stmt", 4, $1, $<node>2, $<node>3, $4);}
             ;
 local-declarations: local-declarations var-declaration {$<node>$ = node("local-declarations", 2, $<node>1, $<node>2);}
-                  | empty {$<node>$ = node("local-declarations", 0);}
+                  | {$<node>$ = node("local-declarations", 0);}
                   ;
 statement-list: statement-list statement {$<node>$ = node("statement-list", 2, $<node>1, $<node>2);}
-              | empty {$<node>$ = node("statement-list", 0);}
+              | {$<node>$ = node("statement-list", 0);}
               ;
-statement: expression-stmt {$<node>$ = node("statment", 1, $<node>1);}
-         | compound-stmt {$<node>$ = node("statment", 1, $<node>1);}
-         | selection-stmt {$<node>$ = node("statment", 1, $<node>1);}
-         | iteration-stmt {$<node>$ = node("statment", 1, $<node>1);}
-         | return-stmt {$<node>$ = node("statment", 1, $<node>1);}
+statement: expression-stmt {$<node>$ = node("statement", 1, $<node>1);}
+         | compound-stmt {$<node>$ = node("statement", 1, $<node>1);}
+         | selection-stmt {$<node>$ = node("statement", 1, $<node>1);}
+         | iteration-stmt {$<node>$ = node("statement", 1, $<node>1);}
+         | return-stmt {$<node>$ = node("statement", 1, $<node>1);}
          ;
 expression-stmt: expression SEMI {$<node>$ = node("expression-stmt", 2, $<node>1, $2);}
                | SEMI {$<node>$ = node("expression-stmt", 1, $1);}
@@ -172,7 +170,7 @@ float: TYPE_FLOAT{$<node>$ = node("float", 1, $1);}
 call: ID LP args RP {$<node>$ = node("call", 4, $1, $2, $<node>3, $4);}
     ;
 args: arg-list {$<node>$ = node("args", 1, $<node>1);}
-    | empty {$<node>$ = node("args", 0);}
+    | {$<node>$ = node("args", 0);}
     ;
 arg-list: arg-list COMMA expression {$<node>$ = node("arg-list", 3, $<node>1, $2, $<node>3);}
         | expression {$<node>$ = node("arg-list", 1, $<node>1);}
