@@ -37,8 +37,8 @@ void pass_node(char *text){
 "while" {pos_start = pos_end; pos_end += 5; pass_node(yytext); return WHILE;}
 
 [0-9]+\.|[0-9]*\.[0-9]+ {pos_start = pos_end; pos_end += yyleng; pass_node(yytext); return FLOATPOINT;}
-0|[1-9][0-9]* {pos_start = pos_end; pos_end += yyleng; pass_node(yytext); return INTEGER;} 
-[a-z_A-Z][a-z_A-Z0-9]* {pos_start = pos_end; pos_end += yyleng; pass_node(yytext); return ID;}
+[0-9]+ {pos_start = pos_end; pos_end += yyleng; pass_node(yytext); return INTEGER;} 
+[a-zA-Z]+ {pos_start = pos_end; pos_end += yyleng; pass_node(yytext); return ID;}
 
 \- {pos_start = pos_end; pos_end += 1; pass_node(yytext); return MINUS;}
 \* {pos_start = pos_end; pos_end += 1; pass_node(yytext); return STAR;}
@@ -60,9 +60,10 @@ void pass_node(char *text){
 \} {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RC;}
 
 " "|\t {pos_end+=yyleng;}
-\n {lines++;pos_end = 0;}
+\r\n|\r|\n {lines++;pos_end = 0;}
 
-\/\*[^(\*\/)]*\*\/ {return COMMENT;}
+\/\*(?:[^\*]|\*+[^\/\*])*\*+\/ {}
+
 
 . { pos_start = pos_end; pos_end++; return ERROR; }
 %%

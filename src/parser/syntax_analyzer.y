@@ -163,9 +163,9 @@ factor: LP expression RP {$<node>$ = node("factor", 3, $1, $<node>2, $3);}
       | integer {$<node>$ = node("factor", 1, $<node>1);}
       | float {$<node>$ = node("factor", 1, $<node>1);}
       ;
-integer: TYPE_INT {$<node>$ = node("integer", 1, $1);}
+integer: INTEGER {$<node>$ = node("integer", 1, $1);}
         ;
-float: TYPE_FLOAT{$<node>$ = node("float", 1, $1);}
+float: FLOATPOINT {$<node>$ = node("float", 1, $1);}
     ;
 call: ID LP args RP {$<node>$ = node("call", 4, $1, $2, $<node>3, $4);}
     ;
