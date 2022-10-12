@@ -1,21 +1,21 @@
 add_subdirectory(calculator)
-add_executable(
-    gcd_array_generator
-    ta_gcd/gcd_array_generator.cpp
-)
-target_link_libraries(
-    gcd_array_generator
-    IR_lib
-)
-
 # add_executable(
-#     stu_assign_generator
-#     stu_cpp/assign_generator.cpp
+#     gcd_array_generator
+#     ta_gcd/gcd_array_generator.cpp
 # )
 # target_link_libraries(
-#     stu_assign_generator    
+#     gcd_array_generator
 #     IR_lib
 # )
+
+add_executable(
+    stu_assign_generator
+    stu_cpp/assign_generator.cpp
+)
+target_link_libraries(
+    stu_assign_generator    
+    IR_lib
+)
 # add_executable(
 #     stu_fun_generator
 #     stu_cpp/fun_generator.cpp
