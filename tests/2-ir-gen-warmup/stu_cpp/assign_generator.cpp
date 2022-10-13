@@ -27,14 +27,14 @@ int main() {
     auto bb = BasicBlock::create(module, "entry", mainFun);
     builder->set_insert_point(bb);
     auto aAlloca = builder->create_alloca(ArrayType::get(Int32Type, 10));
-    auto a0GEP = builder->create_gep(aAlloca, {CONST_INT(0)});
+    auto a0GEP = builder->create_gep(aAlloca, {CONST_INT(0), CONST_INT(0)});
     builder->create_store(CONST_INT(10), a0GEP);
-    a0GEP = builder->create_gep(aAlloca, {CONST_INT(0)});
+    a0GEP = builder->create_gep(aAlloca, {CONST_INT(0), CONST_INT(0)});
     auto a0Load = builder->create_load(a0GEP);
     auto mul = builder->create_imul(a0Load, CONST_INT(2));
-    auto a1GEP = builder->create_gep(aAlloca, {CONST_INT(1)});
+    auto a1GEP = builder->create_gep(aAlloca, {CONST_INT(0), CONST_INT(1)});
     builder->create_store(mul, a1GEP);
-    a1GEP = builder->create_gep(aAlloca, {CONST_INT(1)});
+    a1GEP = builder->create_gep(aAlloca, {CONST_INT(0), CONST_INT(1)});
     auto a1Load = builder->create_load(a1GEP);
     builder->create_ret(a1Load);
 
