@@ -33,7 +33,7 @@ int main() {
     auto aAlloca = builder->create_alloca(floatType);
     builder->create_store(CONST_FP(5.555), aAlloca);
     auto truebb = BasicBlock::create(module, "true", mainFun);
-    auto flasebb = BasicBlock::create(module, "false", mainFun);
+    auto falsebb = BasicBlock::create(module, "false", mainFun);
     auto retbb = BasicBlock::create(module, "ret", mainFun);
     auto aLoad = builder->create_load(aAlloca);
     auto comp = builder->create_fcmp_gt(aLoad, CONST_FP(1));

@@ -28,7 +28,7 @@ int main() {
     auto bb = BasicBlock::create(module, "entry", calleeFun);
     builder->set_insert_point(bb);
     auto retAlloca = builder->create_alloca(Int32Type);
-    auto aAlloca = builer->create_alloca(Int32Type);
+    auto aAlloca = builder->create_alloca(Int32Type);
     std::vector<Value *> args;  
     for (auto arg = calleeFun->arg_begin(); arg != calleeFun->arg_end(); arg++) {
         args.push_back(*arg);
@@ -43,7 +43,7 @@ int main() {
     auto mainFun = Function::create(FunctionType::get(Int32Type, {}), "main", module);
     bb = BasicBlock::create(module,"entry", mainFun);
     builder->set_insert_point(bb);
-    retAlloca = builer->create_alloca(Int32Type);
+    retAlloca = builder->create_alloca(Int32Type);
     auto call = builder->create_call(calleeFun, {CONST_INT(110)});
     builder->create_store(call, retAlloca);
     builder->create_ret(call);
