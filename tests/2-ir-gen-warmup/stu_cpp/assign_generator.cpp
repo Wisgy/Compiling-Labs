@@ -23,6 +23,7 @@ int main() {
     auto builder = new IRBuilder(nullptr, module);
     Type *Int32Type = Type::get_int32_type(module);
 
+    //main function
     auto mainFun = Function::create(FunctionType::get(Int32Type, {}), "main", module);
     auto bb = BasicBlock::create(module, "entry", mainFun);
     builder->set_insert_point(bb);
