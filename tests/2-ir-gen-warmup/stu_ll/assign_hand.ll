@@ -6,7 +6,7 @@ target triple = "x86_64-unknown-linux-gnu"
 ; Function Attrs: noinline nounwind optnone uwtable
 define dso_local i32 @main() #0 {
   %1 = alloca [10 x i32]
-  store i32 10, i32* (getelementptr inbounds [10 x i32], [10 x i32]* %2, i32 0, i32 0)
+  store i32 10, i32* getelementptr inbounds ([10 x i32], [10 x i32]* %2, i32 0, i32 0)
   %2 = load i32, i32* getelementptr inbounds ([10 x i32], [10 x i32]* %2, i32 0, i32 0)
   %3 = mul nsw i32 %2, 2
   store i32 %3, i32* getelementptr inbounds ([10 x i32], [10 x i32]* %2, i32 0, i32 0)

@@ -7,7 +7,7 @@ target triple = "x86_64-unknown-linux-gnu"
 define dso_local i32 @main() #0 {
   %1 = alloca i32
   %2 = alloca float
-  store float 5.555, float* %2
+  store float 0x40163851E0000000, float* %2
   %3 = load float, float* %2
   %4 = fcmp sgt float %3, 1
   br i1 %4, label %5, label %6
