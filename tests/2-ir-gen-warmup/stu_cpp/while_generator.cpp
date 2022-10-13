@@ -53,7 +53,8 @@ int main() {
     builder->create_br(cmpBB);
     //ret
     builder->set_insert_point(retBB);
-    builder->create_ret(aAlloca);
+    auto retLoad = builder->create_load(aAlloca);
+    builder->create_ret(retLoad);
 
     std::cout << module->print();
     delete module;

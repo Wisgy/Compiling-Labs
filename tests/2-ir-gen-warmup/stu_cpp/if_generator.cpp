@@ -48,7 +48,8 @@ int main() {
     builder->create_br(retbb);
     //ret
     builder->set_insert_point(retbb);
-    builder->create_ret(retAlloca);
+    auto retLoad = builder->create_load(retAlloca);
+    builder->create_ret(retLoad);
 
     std::cout << module->print();
     delete module;
