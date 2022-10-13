@@ -9,7 +9,7 @@ define dso_local i32 @main() #0 {
   %2 = alloca float
   store float 0x40163851E0000000, float* %2
   %3 = load float, float* %2
-  %4 = fcmp sgt float %3, 1
+  %4 = fcmp sgt float %3, 1.000000e+00
   br i1 %4, label %5, label %6
 
 5:                                                ; preds = %0
