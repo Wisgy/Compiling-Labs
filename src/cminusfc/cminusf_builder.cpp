@@ -253,7 +253,12 @@ void CminusfBuilder::visit(ASTReturnStmt &node) {
     } else {
         //!TOiDO: The given code is incomplete.
         // You need to solve other return cases (e.g. return an integer).
+        isaddr = false;
         node.expression->accept(*this);
+        if(isaddr){
+            value = builder->create_load(value);
+            type = value->get_type();
+        }
         auto return_type = cur_fun->get_return_type();
         if(return_type != type){//type conversion
             if(type == INT1_T) value = builder->create_zext(value, INT32_T);
@@ -335,6 +340,10 @@ void CminusfBuilder::visit(ASTSimpleExpression &node) {
     // Add some code here.
     if(node.additive_expression_r){//additive-expression relop additive-expression
         node.additive_expression_l->accept(*this);
+        if(type == INT1_T){
+            value = builder->create_zext(value, INT32_T);
+            type = INT32_T;
+        }
         auto l_value = value;
         auto l_type = type;
         if(isaddr){
@@ -343,6 +352,10 @@ void CminusfBuilder::visit(ASTSimpleExpression &node) {
             isaddr = false;
         }
         node.additive_expression_r->accept(*this);
+        if(type == INT1_T){
+            value = builder->create_zext(value, INT32_T);
+            type = INT32_T;
+        }
         auto r_value = value;
         auto r_type = type;
         if(isaddr){
