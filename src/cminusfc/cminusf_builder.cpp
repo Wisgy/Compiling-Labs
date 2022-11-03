@@ -285,7 +285,6 @@ void CminusfBuilder::visit(ASTVar &node) {
             value = builder->create_fptosi(value, INT32_T);
             type = INT32_T;
         }
-        std::cout<<neg<<std::endl;
         if(neg<0){
             value = scope.find("neg_idx_except");
             builder->create_call(value, {});
