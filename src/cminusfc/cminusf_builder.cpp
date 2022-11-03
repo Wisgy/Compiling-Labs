@@ -16,6 +16,8 @@
 #define CONST_ZERO(type) ConstantZero::get(type, module.get())
 Value *value;
 Type *type;
+bool isaddr;
+float neg;
 
 // function that is being built
 Function *cur_fun = nullptr;
@@ -54,10 +56,12 @@ void CminusfBuilder::visit(ASTNum &node) {
     //!TOiDO: This function is empty now.
     // Add some code here.
     if(node.type == TYPE_INT){
+        neg = node.i_val;
         value = CONST_INT(node.i_val);
         type = INT32_T;
     }
     else {
+        neg = node.f_val;
         value = CONST_FP(node.f_val);
         type = FLOAT_T;
     }
@@ -79,6 +83,8 @@ void CminusfBuilder::visit(ASTVarDeclaration &node) {
     else{
         if(node.num){//array
             node.num->accept(*this);
+            if(node.type == TYPE_INT)type = INT32_T;
+            if(node.type == TYPE_FLOAT)type = FLOAT_T;
             value = builder->create_alloca(ArrayType::get(type, node.num->i_val));
         }
         else{//number
@@ -158,7 +164,6 @@ void CminusfBuilder::visit(ASTCompoundStmt &node) {
     // You may need to add some code here
     // to deal with complex statements. 
     scope.enter();
-    std::cout<<"compound"<<std::endl;
     for (auto &decl : node.local_declarations) {
         decl->accept(*this);
     }
@@ -182,7 +187,13 @@ void CminusfBuilder::visit(ASTExpressionStmt &node) {
 void CminusfBuilder::visit(ASTSelectionStmt &node) {
     //!TOiDO: This function is empty now.
     // Add some code here.
+    isaddr = false;
     node.expression->accept(*this);
+    if(isaddr){
+        value = builder->create_load(value);
+        type = value->get_type();
+        isaddr = false;
+    }
     if(type == INT32_T)value = builder->create_icmp_ne(value, CONST_INT(0));
     if(type == FLOAT_T)value = builder->create_fcmp_ne(value, CONST_FP(0));
     BasicBlock * falsebb;
@@ -218,7 +229,13 @@ void CminusfBuilder::visit(ASTIterationStmt &node) {
     auto exitBB = BasicBlock::create(module.get(), "", cur_fun);
     builder->create_br(cmpBB);
     builder->set_insert_point(cmpBB);
+    isaddr = false;
     node.expression->accept(*this);
+    if(isaddr){
+        value = builder->create_load(value);
+        type = value->get_type();
+        isaddr = false;
+    }
     if(type == INT32_T)value = builder->create_icmp_ne(value, CONST_INT(0));
     if(type == FLOAT_T)value = builder->create_fcmp_ne(value, CONST_FP(0));
     builder->create_cond_br(value, whileBB, exitBB);
@@ -251,25 +268,35 @@ void CminusfBuilder::visit(ASTVar &node) {
     //!TOiDO: This function is empty now.
     // Add some code here.
     if(node.expression){//array
+        isaddr = false;
+        neg = 0;
         node.expression->accept(*this);
+        if(isaddr){
+            value = builder->create_load(value);
+            type = value->get_type();
+            isaddr = false;
+        }
         if(type == FLOAT_T){//type conversion
             value = builder->create_fptosi(value, INT32_T);
             type = INT32_T;
         }
-        // if(){ TODO:how to compare data of Value type with zero of int type
-        //     value = scope.find("neg_idx_except");
-        //     builder->create_call(value, {});
-        // }
-        auto base_addr = scope.find(node.id);
-        if(base_addr->get_type() == Type::get_pointer_type(INT32PTR_T)
-        || base_addr->get_type() == Type::get_pointer_type(FLOATPTR_T)){
-            base_addr = builder->create_load(base_addr);
-            value = builder->create_gep(base_addr, {value});
+        std::cout<<neg<<std::endl;
+        if(neg<0){
+            value = scope.find("neg_idx_except");
+            builder->create_call(value, {});
         }
-        else value = builder->create_gep(base_addr, {CONST_INT(0), value});
-        type = value->get_type();
+        else{auto base_addr = scope.find(node.id);
+            isaddr = true;
+            if(base_addr->get_type() == Type::get_pointer_type(INT32PTR_T)
+            || base_addr->get_type() == Type::get_pointer_type(FLOATPTR_T)){
+                base_addr = builder->create_load(base_addr);
+                value = builder->create_gep(base_addr, {value});
+            }
+            else value = builder->create_gep(base_addr, {CONST_INT(0), value});
+            type = value->get_type();}
     }
     else{//number
+        isaddr = true;
         value = scope.find(node.id);
         type = value->get_type();
     }
@@ -278,9 +305,15 @@ void CminusfBuilder::visit(ASTVar &node) {
 void CminusfBuilder::visit(ASTAssignExpression &node) {
     //!TOiDO: This function is empty now.
     // Add some code here.
+    isaddr = false;
     node.expression->accept(*this);
     auto return_value = value;
     auto return_type = type;
+    if(isaddr){
+        return_value = builder->create_load(return_value);
+        return_type = return_value->get_type();
+        isaddr = false;
+    }
     node.var->accept(*this);
     auto target_addr = value;
     auto target_type = type;
@@ -294,6 +327,7 @@ void CminusfBuilder::visit(ASTAssignExpression &node) {
     builder->create_store(return_value, target_addr);
     value = return_value;
     type = target_type;
+    isaddr = false;
 }
 
 void CminusfBuilder::visit(ASTSimpleExpression &node) {
@@ -303,9 +337,19 @@ void CminusfBuilder::visit(ASTSimpleExpression &node) {
         node.additive_expression_l->accept(*this);
         auto l_value = value;
         auto l_type = type;
+        if(isaddr){
+            l_value = builder->create_load(l_value);
+            l_type = l_value->get_type();
+            isaddr = false;
+        }
         node.additive_expression_r->accept(*this);
         auto r_value = value;
         auto r_type = type;
+        if(isaddr){
+            r_value = builder->create_load(r_value);
+            r_type = r_value->get_type();
+            isaddr = false;
+        }
         if(l_type == FLOAT_T || r_type == FLOAT_T){//type conversion
             if(l_type != FLOAT_T) l_value = builder->create_sitofp(l_value, FLOAT_T);
             else if(r_type != FLOAT_T)r_value = builder->create_sitofp(r_value, FLOAT_T);
@@ -351,18 +395,32 @@ void CminusfBuilder::visit(ASTSimpleExpression &node) {
 void CminusfBuilder::visit(ASTAdditiveExpression &node) {
     //!TOiDO: This function is empty now.
     // Add some code here.
+    isaddr = false;
     if(node.additive_expression){//additive-expression addop term
         node.additive_expression->accept(*this);
         auto l_value = value;
         auto l_type = type;
+        float l_num = neg;
+        if(isaddr){
+            l_value = builder->create_load(l_value);
+            l_type = l_value->get_type();
+            isaddr = false;
+        }
         node.term->accept(*this);
         auto r_value = value;
         auto r_type = type;
+        float r_num = neg;
+        if(isaddr){
+            r_value = builder->create_load(r_value);
+            r_type = r_value->get_type();
+            isaddr = false;
+        }
         if(l_type == FLOAT_T || r_type == FLOAT_T){//type conversion
             if(l_type != FLOAT_T) l_value = builder->create_sitofp(l_value, FLOAT_T);
             else if(r_type != FLOAT_T)r_value = builder->create_sitofp(r_value, FLOAT_T);
         }
         if(node.op == OP_PLUS){// add
+            neg = l_num+r_num;
             if(l_type == FLOAT_T || r_type == FLOAT_T){
                 value = builder->create_fadd(l_value, r_value);
                 type = FLOAT_T;
@@ -373,6 +431,7 @@ void CminusfBuilder::visit(ASTAdditiveExpression &node) {
             }
         }
         else{// sub
+            neg = l_num-r_num; 
             if(l_type == FLOAT_T || r_type == FLOAT_T){
                 value = builder->create_fsub(l_value, r_value);
                 type = FLOAT_T;
@@ -392,16 +451,23 @@ void CminusfBuilder::visit(ASTAdditiveExpression &node) {
 void CminusfBuilder::visit(ASTTerm &node) {
     //!TOiDO: This function is empty now.
     // Add some code here.
+    isaddr = false;
     if(node.term){//term mulop factor
         node.term->accept(*this);
+        float l_num = neg;
+        if(isaddr){
+            value = builder->create_load(value);
+            type = value->get_type();
+            isaddr = false;
+        }
         auto l_value = value;
         auto l_type = type;
         node.factor->accept(*this);
-        std::cout<<value->get_name()<<std::endl;
-        if(type != INT32_T || type != FLOAT_T){
+        float r_num = neg;
+        if(isaddr){
             value = builder->create_load(value);
             type = value->get_type();
-            std::cout<<value->get_name()<<std::endl;
+            isaddr = false;
         }
         auto r_value = value;
         auto r_type = type;
@@ -410,6 +476,7 @@ void CminusfBuilder::visit(ASTTerm &node) {
             else if(r_type != FLOAT_T)r_value = builder->create_sitofp(r_value, FLOAT_T);
         }
         if(node.op == OP_MUL){// mul
+            neg = l_num*r_num;
             if(l_type == FLOAT_T || r_type == FLOAT_T){
                 value = builder->create_fmul(l_value, r_value);
                 type = FLOAT_T;
@@ -420,6 +487,7 @@ void CminusfBuilder::visit(ASTTerm &node) {
             }
         }
         else{// div
+            neg = l_num/r_num; 
             if(l_type == FLOAT_T || r_type == FLOAT_T){
                 value = builder->create_fdiv(l_value, r_value);
                 type = FLOAT_T;
@@ -432,8 +500,6 @@ void CminusfBuilder::visit(ASTTerm &node) {
     }
     else{//factor
         node.factor->accept(*this);
-        if(type == INT32PTR_T){value = builder->create_load(value);type = INT32_T;}
-        if(type == FLOATPTR_T){value = builder->create_load(value);type = FLOAT_T;}
     }
 
 }
@@ -445,8 +511,19 @@ void CminusfBuilder::visit(ASTCall &node) {
     auto arg_types = func->get_function_type();
     std::vector<Value*> args;
     if(node.args.size() != 0){//exist args
-        for(int i = node.args.size()-1;i >= 0;i--){
+        for(int i = 0;i < node.args.size();i++){
+            isaddr = false;
             node.args[i]->accept(*this);
+            if(isaddr){
+                auto tmpvalue = builder->create_load(value);
+                type = tmpvalue->get_type();
+                if(type->is_array_type()){
+                    value = builder->create_gep(value, {CONST_INT(0), CONST_INT(0)});
+                    type = value->get_type();
+                }
+                else value = tmpvalue;
+                isaddr = false;
+            }
             auto arg_type = arg_types->get_param_type(i);
             if(arg_type != type){//type conversion
                 if(type == INT1_T) value = builder->create_zext(value, arg_type);
