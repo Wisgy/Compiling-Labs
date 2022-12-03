@@ -21,7 +21,7 @@
 using namespace GVNExpression;
 using std::string_literals::operator""s;
 using std::shared_ptr;
-
+// std::set<Value>
 static auto get_const_int_value = [](Value *v) { return dynamic_cast<ConstantInt *>(v)->get_value(); };
 static auto get_const_fp_value = [](Value *v) { return dynamic_cast<ConstantFP *>(v)->get_value(); };
 // Constant Propagation helper, folders are done for you
@@ -131,33 +131,78 @@ static void print_partitions(const GVN::partitions &p) {
 
 GVN::partitions GVN::join(const partitions &P1, const partitions &P2) {
     // TODO: do intersection pair-wise
-    return {};
+    if(*P1.begin()==nullptr)
+        return P2;
+    if(*P2.begin()==nullptr)
+        return P1;
+    partitions P;
+    for(auto &Ci : P1)
+        for(auto &Cj : P2){
+            auto Ck = intersect(Ci, Cj);
+            if(Ck!=nullptr)
+                P.insert(Ck);
+        }
+    return P;
 }
 
 std::shared_ptr<CongruenceClass> GVN::intersect(std::shared_ptr<CongruenceClass> Ci,
                                                 std::shared_ptr<CongruenceClass> Cj) {
-    // TODO
-    return {};
+    // TODO:
+    CongruenceClass Ck;
+    if(Ci==Cj)
+        Ck.leader_=Ci->leader_;
+    else{
+        Value*v=new Value;
+        std::stringstream s;
+        s<<next_value_number_++;
+        v->set_name(s.str());
+        Ck.leader_=v;
+    }
+    if(Ci->value_expr_==Cj->value_expr_)
+        Ck.value_expr_=Ci->value_expr_;
+    if(Ci->value_phi_==Cj->value_phi_)
+        Ck.value_phi_=Ci->value_phi_;
+    for(auto &mem : Ci->members_){
+        if(Cj->members_.count(mem))
+            Ck.members_.insert(mem);
+    }
+    return Ck;
 }
 
 void GVN::detectEquivalences() {
     bool changed = false;
     // initialize pout with top
+    partitions top;
+    top.insert(nullptr);
+    for (auto &bb : func_->get_basic_blocks()){
+        pout_[bb] = top;
+    }
     // iterate until converge
     do {
+        changed = false;
+        partitions pout;
         // see the pseudo code in documentation
         for (auto &bb : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
             // get PIN of bb by predecessor(s)
+            auto suc_bb = bb->get_pre_basic_blocks();
             // iterate through all instructions in the block
             // and the phi instruction in all the successors
-
+            if(suc_bb==2)
+                pout = join(pout_[suc_bb[0]], pout_[suc_bb[0]]);
+            else
+                pout = pout_[suc_bb[0]];
+            for(auto &instr : bb->get_instructions()){
+                pout = transferFunction(instr, , pout);
+            }
             // check changes in pout
+            if(!(pout_[bb] == pout))
+                changed = true;
         }
     } while (changed);
 }
 
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr) {
-    // TODO
+    // TODO:
     return {};
 }
 
@@ -171,7 +216,7 @@ GVN::partitions GVN::transferFunction(Instruction *x, Value *e, partitions pin) 
 }
 
 shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const partitions &P) {
-    // TODO
+    // TODO:
     return {};
 }
 
@@ -302,5 +347,5 @@ bool operator==(const GVN::partitions &p1, const GVN::partitions &p2) {
 
 bool CongruenceClass::operator==(const CongruenceClass &other) const {
     // TODO: which fields need to be compared?
-    return false;
+    return this->leader_==other.leader_;
 }
