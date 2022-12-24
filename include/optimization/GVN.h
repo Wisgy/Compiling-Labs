@@ -40,18 +40,38 @@ class ConstFolder {
 class Expression {
   public:
     // TODO: you need to extend expression types according to testcases
-    enum gvn_expr_t { e_constant, e_bin, e_phi };
+    enum gvn_expr_t { e_constant, e_bin, e_phi, e_var};
     Expression(gvn_expr_t t) : expr_type(t) {}
     virtual ~Expression() = default;
     virtual std::string print() = 0;
     gvn_expr_t get_expr_type() const { return expr_type; }
-
+    bool is_constant() const { return get_expr_type() == e_constant;}
+    bool is_binary() const { return get_expr_type() == e_bin;}
+    bool is_phi() const { return get_expr_type() == e_phi;}
+    bool is_var() const { return get_expr_type() == e_var;}
   private:
     gvn_expr_t expr_type;
 };
 
 bool operator==(const std::shared_ptr<Expression> &lhs, const std::shared_ptr<Expression> &rhs);
 bool operator==(const GVNExpression::Expression &lhs, const GVNExpression::Expression &rhs);
+
+class VarExpression : public Expression {
+  public:
+    static std::shared_ptr<VarExpression> create(int num) { return std::make_shared<VarExpression>(num); }
+    virtual std::string print() { return "VarExpr"; }
+    int get_num() const { return number;}
+    bool equiv(const VarExpression *other) const {
+        if (number==other->get_num())
+            return true;
+        else
+            return false;
+    }
+    VarExpression(int num) : Expression(e_var), number(num) {}
+    
+  private:
+    int number;
+};
 
 class ConstantExpression : public Expression {
   public:
@@ -83,7 +103,9 @@ class BinaryExpression : public Expression {
         else
             return false;
     }
-
+    Instruction::OpID get_op() const {return op_;}
+    std::shared_ptr<Expression> get_lhs() const {return lhs_;}
+    std::shared_ptr<Expression> get_rhs() const {return rhs_;}
     BinaryExpression(Instruction::OpID op, std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs)
         : Expression(e_bin), op_(op), lhs_(lhs), rhs_(rhs) {}
 
@@ -104,12 +126,18 @@ class PhiExpression : public Expression {
         else
             return false;
     }
+    std::shared_ptr<Expression> get_lhs() const {return lhs_;}
+    std::shared_ptr<Expression> get_rhs() const {return rhs_;}
     PhiExpression(std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs)
         : Expression(e_phi), lhs_(lhs), rhs_(rhs) {}
 
   private:
     std::shared_ptr<Expression> lhs_, rhs_;
 };
+bool operator==(const std::shared_ptr<VarExpression> &lhs, const std::shared_ptr<VarExpression> &rhs);
+bool operator==(const std::shared_ptr<ConstantExpression> &lhs, const std::shared_ptr<ConstantExpression> &rhs);
+bool operator==(const std::shared_ptr<BinaryExpression> &lhs, const std::shared_ptr<BinaryExpression> &rhs);
+bool operator==(const std::shared_ptr<PhiExpression> &lhs, const std::shared_ptr<PhiExpression> &rhs);
 } // namespace GVNExpression
 
 /**
@@ -158,10 +186,10 @@ class GVN : public Pass {
     void detectEquivalences();
     partitions join(const partitions &P1, const partitions &P2);
     std::shared_ptr<CongruenceClass> intersect(std::shared_ptr<CongruenceClass>, std::shared_ptr<CongruenceClass>);
-    partitions transferFunction(Instruction *x, Value *e, partitions pin);
+    partitions transferFunction(Instruction *x, partitions pin);
     std::shared_ptr<GVNExpression::PhiExpression> valuePhiFunc(std::shared_ptr<GVNExpression::Expression>,
                                                                const partitions &);
-    std::shared_ptr<GVNExpression::Expression> valueExpr(Instruction *instr);
+    std::shared_ptr<GVNExpression::Expression> valueExpr(Instruction *instr, partitions &pin);
     std::shared_ptr<GVNExpression::Expression> getVN(const partitions &pout,
                                                      std::shared_ptr<GVNExpression::Expression> ve);
 
