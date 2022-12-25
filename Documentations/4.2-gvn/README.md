@@ -267,17 +267,41 @@ valuePhiFunc(ve,P)
 
 GVN 通过数据流分析来检测冗余的变量和计算，通过替换和死代码删除结合，实现优化效果。前述的例子中主要以二元运算语句来解释原理，且助教为大家提供了代码替换和删除的逻辑，除此之外，需要完成的方向有：
 
-1. 对冗余指令的检测与消除包括（二元运算指令，cmp，gep，类型转换指令） 
+1. 对冗余指令的检测与消除包括
+    
+    - 二元运算指令：add, sub, mul, sdiv, fadd, fsub, fmul, fdiv
+    
+    - 地址运算指令：getelementptr
+    
+    - 比较指令：cmp, fcmp
+    
+    - 类型转换指令：zext, fptosi, sitofp
+  
+2. 对于 call 指令冗余的检测与消除：
+    
+    - 对纯函数的冗余调用需要进行检测与消除
+    
+    - 对于非纯函数（例如 input()）的多次调用不得分析成同一个等价类中  
+    
+    **注**：助教提供了纯函数分析，见[FuncInfo.h](../../include/optimization/FuncInfo.h)，该 Pass 的接口`is_pure_function`接受一个lightIR Function，判断该函数是否为纯函数；对于纯函数，如果其参数等价，对这个纯函数的不同调用也等价。
 
-2. 对纯函数的冗余调用消除（助教提供了纯函数分析，见[FuncInfo.h](../../include/optimization/FuncInfo.h)）
+3. 常量传播：在数据流分析的过程中，需要使用常量折叠来实现常量传播，从而将可在编译时计算的结果计算好，减少运行时开销。
+    
+    - 本次实验要求借助 GVN 的数据流分析框架，实现常量传播，在含有常量的等价类中，通过将 leader_ 设置为 Constant* 类型，在常量传播后将指令替换成相应的常数。  
+    
+    **注**：助教提供了常量折叠类，在辅助类的介绍中
 
-    该 Pass 的接口`is_pure_function`接受一个lightIR Function，判断该函数是否为纯函数；对于纯函数，如果其参数等价，对这个纯函数的不同调用也等价。
-
-3. 常量传播
-
-   在数据流分析的过程中，可以使用常量折叠来实现常量传播，从而将可在编译时计算的结果计算好，减少运行时开销。（助教提供了常量折叠类，在辅助类的介绍中）
+4. value phi function 的冗余的检测与消除：
+    
+    - 通过 value phi function 可以在某个程序点比较两个变量每条路径的等价关系，为了简化这部分逻辑，仅考察 `phi(a+b, c+d)`与`phi(a,c)+phi(b,d)` 之间的冗余。+ 代表 add, sub, mul, sdiv, fadd, fsub, fmul, fdiv。a,b,c,d 代表不含常数的等价类
 
 我们会在测试样例中对这三点进行考察。
+
+**case 考察范围说明**：在 Lab4-2 的公开 case 与隐藏 case 中，以下情况不会出现：
+
+1. 不会对加法乘法运算的交换律，结合律造成的冗余进行考察。
+2. 不会对访存指令之间的等价性进行考察。
+3. 对于 value phi function 的冗余仅仅考察`phi(a+b, c+d)`与`phi(a,c)+phi(b,d)`之间的冗余。（其中 + 代表四则二元运算+ - * /，value phi function 上某一路径的常量传播可以不考虑，例如 case 不会涉及如下情况冗余`phi(0, c+d)`与 `phi(0,c)+phi(0,d)`）
 
 **注**：我们为大家提供了冗余删除的函数 `GVN::replace_cc_members` ，只需要正确填充在 `GVN` 类中的 `pout` 变量，我们的替换逻辑将会根据每个 bb 的 pout 自行使用`CongruenceClass` 的 `leader_` 成员来替换在此 bb 内与其等价其他指令。
 
@@ -523,23 +547,9 @@ root@3fd22a9ed627:/labs/2022fall-compiler_cminus-taversion/tests/4-ir-opt#
 
 * 迟交规定
 
-  * `Soft Deadline`: 2022/12/12 23:59:59 (北京标准时间，UTC+8)
+  * `Deadline`: 2023/01/14 23:59:59 (北京标准时间，UTC+8)
 
-  * `Hard Deadline`: 2022/12/19 23:59:59 (北京标准时间，UTC+8)
-
-  * 迟交需要邮件通知 TA :
-    * 邮箱:
-    chen16614@mail.ustc.edu.cn 抄送 farmerzhang1@mail.ustc.edu.cn
-    * 邮件主题: lab4.2迟交-学号
-    * 内容: 包括迟交原因、最后版本commitID、迟交时间等
-
-  * 迟交分数
-    * x为迟交天数(对于`Soft Deadline`而言)，grade为满分
-      ``` bash
-      final_grade = grade, x = 0
-      final_grade = grade * (0.9)^x, 0 < x <= 7
-      final_grade = 0, x > 7 # 这一条严格执行,请对自己负责
-      ```
+    本次实验不接受补交
 
 * 关于抄袭和雷同
   经过助教和老师判定属于实验抄袭或雷同情况，所有参与方一律零分，不接受任何解释和反驳（严禁对开源代码或者其他同学代码的直接搬运）。
