@@ -205,7 +205,7 @@ void GVN::detectEquivalences() {
             // and the phi instruction in all the successors
             auto pre_bb1 = pre_bb.begin();
             auto pre_bb2 = pre_bb.begin();
-            // std::cout<<pre_bb.size()<<std::endl;
+            std::cout<<pre_bb.size()<<std::endl;
             if(pre_bb.size()==2){
                 pre_bb2++;
                 pout = join(pout_[*pre_bb1], pout_[*pre_bb2]);
@@ -218,7 +218,12 @@ void GVN::detectEquivalences() {
                 pout = clone(top);
             }
             for(auto &instr : bb->get_instructions()){
-                if(instr.is_phi()||instr.is_br()||instr.is_ret())continue;
+                if(instr.is_br()||instr.is_ret()||instr.is_call()&&instr.get_name()=="")continue;
+                if(instr.is_phi()){
+                    bool exist=false;
+                    for(auto Ci : pout)if(Ci->members_.count(&instr)){exist=true;break;}
+                    if(exist)continue;
+                }
                 pout = transferFunction(&instr,pout);
             }
             //add copy statement
@@ -248,7 +253,7 @@ void GVN::detectEquivalences() {
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
     // TODO:
     // std::shared_ptr<Expression> expr = std::make_shared<Expression>();
-    auto op=instr->get_instr_type();
+    std::cout<<instr->get_name()<<std::endl;
     auto op_num=instr->get_num_operand();
     std::shared_ptr<Expression> lhs,rhs;
     bool flag=true;
@@ -302,11 +307,12 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 rhs=valueExpr(dynamic_cast<Instruction *>(instr->get_operand(1)), pin);
         }
         if(instr->isBinary())
-            return BinaryExpression::create(op, lhs, rhs);
+            return BinaryExpression::create(instr->get_instr_type(), lhs, rhs);
         else 
-            return BinaryExpression::create(op, lhs, rhs);
+            return BinaryExpression::create(instr->get_instr_type(), lhs, rhs);
         
     }
+    else if(instr->get_name()!="")return VarExpression::create(next_value_number_++);
     return nullptr;
 }
 
@@ -340,7 +346,6 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     }
     else{
         for(auto &Ci : pout){
-            
             if(Ci->value_expr_==ve || (vpf!=nullptr&&Ci->value_phi_==vpf)){
                 Ci->members_.insert(x);
                 // Ci->value_expr_=ve;
@@ -367,6 +372,7 @@ shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const par
     if(ve==nullptr)return nullptr;
     bool flag=false;
     if(ve->is_binary()){
+        auto tmp = std::dynamic_pointer_cast<BinaryExpression>(ve);
         bool lhs_is_phi=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs()->is_phi();
         bool rhs_is_phi=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs()->is_phi();
         if(lhs_is_phi&&rhs_is_phi)flag=true;
