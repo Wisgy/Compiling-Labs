@@ -199,6 +199,7 @@ void GVN::detectEquivalences() {
         // see the pseudo code in documentation
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
             auto bb=&bb1;
+            std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
             auto pre_bb = bb->get_pre_basic_blocks();
             // iterate through all instructions in the block
@@ -218,24 +219,51 @@ void GVN::detectEquivalences() {
                 pout = clone(top);
             }
             for(auto &instr : bb->get_instructions()){
-                if(instr.is_br()||instr.is_ret()||instr.is_call()&&instr.get_name()=="")continue;
-                if(instr.is_phi()){
-                    bool exist=false;
-                    for(auto Ci : pout)if(Ci->members_.count(&instr)){exist=true;break;}
-                    if(exist)continue;
-                }
+                if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_call()&&instr.get_name()=="")continue;
+                // if(instr.is_phi()){
+                //     bool exist=false;
+                //     for(auto Ci : pout)if(Ci->members_.count(&instr)){exist=true;break;}
+                //     if(exist)continue;
+                // }
                 pout = transferFunction(&instr,pout);
             }
             //add copy statement
             auto succ_bb = bb->get_succ_basic_blocks();
-            for(auto &bb : succ_bb){
-                for(auto &ins : bb->get_instructions()){
+            for(auto &suc_bb : succ_bb){
+                for(auto &ins : suc_bb->get_instructions()){
                     auto instr = &ins;
                     if(instr->is_phi()){
-                        for(auto &CC:pout){
-                            if(CC->members_.count(instr->get_operand(0))||CC->members_.count(instr->get_operand(2))){
-                                CC->members_.insert(instr);
+                        for(auto &Ci : pout){
+                            if(Ci->members_.count(instr)){
+                                Ci->members_.erase(instr);
+                                if(Ci->members_.size()==0)pout.erase(Ci);
+                                break;
                             }
+                        }
+                        Value* oper;
+                        if(instr->get_operand(1)==bb)oper = instr->get_operand(0);
+                        else if(instr->get_operand(3)==bb)oper = instr->get_operand(2);
+                        bool flag=true;
+                        for(auto &CC:pout){
+                            if(CC->members_.count(oper)||CC->leader_==oper){
+                                CC->members_.insert(instr);
+                                flag=false;
+                                break;
+                            }
+                        }
+                        if(flag){
+                            std::shared_ptr<CongruenceClass> C= std::make_shared<CongruenceClass>(next_value_number_++);
+                            if(dynamic_cast<Constant *>(oper)){//create C
+                                C->leader_=dynamic_cast<Constant *>(oper);
+                                C->value_expr_=ConstantExpression::create(dynamic_cast<Constant *>(oper));
+                            }
+                            else{
+                                C->leader_=instr;
+                                C->value_expr_=VarExpression::create(C->index_);
+                            }
+                            C->members_.insert(instr);
+                            if((*pout.begin())->index_==0)pout.clear();
+                            pout.insert(C);
                         }
                     }
                     else break;
@@ -252,7 +280,7 @@ void GVN::detectEquivalences() {
 
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
     // TODO:
-    // std::shared_ptr<Expression> expr = std::make_shared<Expression>();
+    if(instr==nullptr)return nullptr;
     std::cout<<instr->get_name()<<std::endl;
     auto op_num=instr->get_num_operand();
     std::shared_ptr<Expression> lhs,rhs;
@@ -272,8 +300,32 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
         else return VarExpression::create(next_value_number_);
     }
     else if(op_num==4&&instr->is_phi()){
-        lhs=valueExpr(dynamic_cast<Instruction *>(instr->get_operand(0)), pin);
-        rhs=valueExpr(dynamic_cast<Instruction *>(instr->get_operand(2)), pin);
+        if(dynamic_cast<Constant *>(instr->get_operand(0)))
+            lhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(0)));
+        else {
+            for(auto &C : pin){
+                if(C->members_.count(instr->get_operand(0))){
+                    lhs=C->value_expr_;
+                    flag=false;
+                    break;
+                }
+            }
+            if(flag)
+                lhs=VarExpression::create(0);
+        }
+        if(dynamic_cast<Constant *>(instr->get_operand(2)))
+            rhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(2)));
+        else {
+            for(auto &C : pin){
+                if(C->members_.count(instr->get_operand(2))){
+                    rhs=C->value_expr_;
+                    flag=false;
+                    break;
+                }
+            }
+            if(flag)
+                rhs=VarExpression::create(0);
+        }
         return PhiExpression::create(lhs, rhs);
     }
     else if(op_num==2){
@@ -290,7 +342,7 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 }
             }
             if(flag)
-                lhs=valueExpr(dynamic_cast<Instruction *>(instr->get_operand(0)), pin);
+                lhs=VarExpression::create(0);
         }
         flag=true;
         if(rhs_is_cons)
@@ -304,7 +356,7 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 }
             }
             if(flag)
-                rhs=valueExpr(dynamic_cast<Instruction *>(instr->get_operand(1)), pin);
+                rhs=VarExpression::create(0);
         }
         if(instr->isBinary())
             return BinaryExpression::create(instr->get_instr_type(), lhs, rhs);

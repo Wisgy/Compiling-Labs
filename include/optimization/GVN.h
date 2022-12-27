@@ -62,7 +62,7 @@ class VarExpression : public Expression {
     virtual std::string print() { return "VarExpr"; }
     int get_num() const { return number;}
     bool equiv(const VarExpression *other) const {
-        if (number==other->get_num())
+        if (number==other->get_num()&&number!=0&&other->get_num()!=0)
             return true;
         else
             return false;
