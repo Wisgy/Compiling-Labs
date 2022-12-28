@@ -302,6 +302,7 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
             for(;op<=op_num;op++){
                 call_exp->arg_insert(VarExpression::create(next_value_number_++)); 
             }
+            return call_exp;
         }
         else return VarExpression::create(next_value_number_);
     }
