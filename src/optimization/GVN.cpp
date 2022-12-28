@@ -193,6 +193,7 @@ void GVN::detectEquivalences() {
         pout_[&bb] = top;
     }
     // iterate until converge
+    std::cout<<"func:"<<(func_->get_name())<<std::endl;
     do {
         changed = false;
         partitions pout;
@@ -219,6 +220,7 @@ void GVN::detectEquivalences() {
                 pout = clone(top);
             }
             for(auto &instr : bb->get_instructions()){
+                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_call()&&instr.get_name()=="")continue;
                 // if(instr.is_phi()){
                 //     bool exist=false;
@@ -233,6 +235,7 @@ void GVN::detectEquivalences() {
                 for(auto &ins : suc_bb->get_instructions()){
                     auto instr = &ins;
                     if(instr->is_phi()){
+                        std::cout<<"copy:"<<(instr->get_name())<<std::endl;
                         for(auto &Ci : pout){
                             if(Ci->members_.count(instr)){
                                 Ci->members_.erase(instr);
@@ -281,20 +284,23 @@ void GVN::detectEquivalences() {
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
     // TODO:
     if(instr==nullptr)return nullptr;
-    std::cout<<instr->get_name()<<std::endl;
     auto op_num=instr->get_num_operand();
     std::shared_ptr<Expression> lhs,rhs;
     bool flag=true;
-    // std::cout<<"op_num="<<op_num<<std::endl;
     if(instr->is_call()){
         if(func_info_->is_pure_function(static_cast<Function*>(instr->get_operand(0)))){
-            for(auto &C : pin){
-                for(int op=1;op<op_num;op++){
+            auto call_exp = CallExpression::create(static_cast<Function*>(instr->get_operand(0)));
+            int op=1;
+            for(op=1;op<=op_num;op++){
+                for(auto &C : pin){
                     if(C->members_.count(instr->get_operand(op))){
-                        // return C->value_expr_;
+                        call_exp->arg_insert(C->value_expr_);
                         continue;
                     }
-                }  
+                }
+            }
+            for(;op<=op_num;op++){
+                call_exp->arg_insert(VarExpression::create(next_value_number_++)); 
             }
         }
         else return VarExpression::create(next_value_number_);
@@ -400,7 +406,8 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
         for(auto &Ci : pout){
             if(Ci->value_expr_==ve || (vpf!=nullptr&&Ci->value_phi_==vpf)){
                 Ci->members_.insert(x);
-                // Ci->value_expr_=ve;
+                Ci->value_expr_=ve;
+                Ci->value_phi_=vpf;
                 // std::cout<<"must"<<std::endl;
                 flag=false;
                 break;
@@ -554,10 +561,16 @@ bool GVNExpression::operator==(const Expression &lhs, const Expression &rhs) {
     case Expression::e_bin: return equiv_as<BinaryExpression>(lhs, rhs);
     case Expression::e_phi: return equiv_as<PhiExpression>(lhs, rhs);
     case Expression::e_var: return equiv_as<VarExpression>(lhs, rhs);
+    case Expression::e_call: return equiv_as<CallExpression>(lhs, rhs);
     }
 }
 
 bool GVNExpression::operator==(const shared_ptr<Expression> &lhs, const shared_ptr<Expression> &rhs) {
+    if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
+        return true;
+    return lhs and rhs and *lhs == *rhs;
+}
+bool GVNExpression::operator==(const std::shared_ptr<CallExpression> &lhs, const std::shared_ptr<CallExpression> &rhs) {
     if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
         return true;
     return lhs and rhs and *lhs == *rhs;
@@ -607,7 +620,7 @@ bool operator==(const GVN::partitions &p1, const GVN::partitions &p2) {
 bool CongruenceClass::operator==(const CongruenceClass &other) const {
     // TODO: which fields need to be compared?
     if(this->members_.size()!=other.members_.size())return false;
-    if(!(this->value_phi_==other.value_phi_))return false;
+    // if(!(this->value_phi_==other.value_phi_))return false;
     for(auto &mem : other.members_){
         if(this->members_.count(mem))continue;
         else return false;

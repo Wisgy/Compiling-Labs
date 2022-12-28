@@ -40,7 +40,7 @@ class ConstFolder {
 class Expression {
   public:
     // TODO: you need to extend expression types according to testcases
-    enum gvn_expr_t { e_constant, e_bin, e_phi, e_var};
+    enum gvn_expr_t { e_constant, e_bin, e_phi, e_var, e_call};
     Expression(gvn_expr_t t) : expr_type(t) {}
     virtual ~Expression() = default;
     virtual std::string print() = 0;
@@ -49,6 +49,7 @@ class Expression {
     bool is_binary() const { return get_expr_type() == e_bin;}
     bool is_phi() const { return get_expr_type() == e_phi;}
     bool is_var() const { return get_expr_type() == e_var;}
+    bool is_call() const { return get_expr_type() == e_call;}
   private:
     gvn_expr_t expr_type;
 };
@@ -56,6 +57,30 @@ class Expression {
 bool operator==(const std::shared_ptr<Expression> &lhs, const std::shared_ptr<Expression> &rhs);
 bool operator==(const GVNExpression::Expression &lhs, const GVNExpression::Expression &rhs);
 
+class CallExpression : public Expression {
+  public:
+    static std::shared_ptr<CallExpression> create(Function* call) { return std::make_shared<CallExpression>(call); }
+    virtual std::string print() { return func->get_name(); }
+    Function* get_func() const {return func;}
+    std::set<std::shared_ptr<Expression>> get_args() const {return args;}
+    void arg_insert(std::shared_ptr<Expression> arg) {args.insert(arg);};
+    bool equiv(const CallExpression *other) const {
+        if (func==other->get_func()&&args.size()==other->get_args().size()){
+            for(auto &arg : other->get_args()){
+              if(args.count(arg))continue;
+              else return false;
+            }
+            return true;
+        }
+        else
+            return false;
+    }
+    CallExpression(Function* call) : Expression(e_call), func(call) {}
+    
+  private:
+    Function* func;
+    std::set<std::shared_ptr<Expression>> args;
+};
 class VarExpression : public Expression {
   public:
     static std::shared_ptr<VarExpression> create(int num) { return std::make_shared<VarExpression>(num); }
@@ -134,6 +159,7 @@ class PhiExpression : public Expression {
   private:
     std::shared_ptr<Expression> lhs_, rhs_;
 };
+bool operator==(const std::shared_ptr<CallExpression> &lhs, const std::shared_ptr<CallExpression> &rhs);
 bool operator==(const std::shared_ptr<VarExpression> &lhs, const std::shared_ptr<VarExpression> &rhs);
 bool operator==(const std::shared_ptr<ConstantExpression> &lhs, const std::shared_ptr<ConstantExpression> &rhs);
 bool operator==(const std::shared_ptr<BinaryExpression> &lhs, const std::shared_ptr<BinaryExpression> &rhs);
