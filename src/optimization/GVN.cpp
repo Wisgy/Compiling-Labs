@@ -193,34 +193,34 @@ void GVN::detectEquivalences() {
         pout_[&bb] = top;
     }
     // iterate until converge
-    std::cout<<"func:"<<(func_->get_name())<<std::endl;
+    // std::cout<<"func:"<<(func_->get_name())<<std::endl;
     do {
         changed = false;
         partitions pout;
         // see the pseudo code in documentation
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
             auto bb=&bb1;
-            std::cout<<(bb->get_name())<<std::endl;
+            // std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
             auto pre_bb = bb->get_pre_basic_blocks();
             // iterate through all instructions in the block
             // and the phi instruction in all the successors
             auto pre_bb1 = pre_bb.begin();
             auto pre_bb2 = pre_bb.begin();
-            std::cout<<pre_bb.size()<<std::endl;
+            // std::cout<<pre_bb.size()<<std::endl;
             if(pre_bb.size()==2){
                 pre_bb2++;
                 pout = join(pout_[*pre_bb1], pout_[*pre_bb2]);
             }
             else if(pre_bb.size()==1){
                 pout = pout_[*pre_bb1];
-                utils::print_partitions(pout);
+                // utils::print_partitions(pout);
             }
             else{
                 pout = clone(top);
             }
             for(auto &instr : bb->get_instructions()){
-                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
+                // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_call()&&instr.get_name()=="")continue;
                 // if(instr.is_phi()){
                 //     bool exist=false;
@@ -235,7 +235,7 @@ void GVN::detectEquivalences() {
                 for(auto &ins : suc_bb->get_instructions()){
                     auto instr = &ins;
                     if(instr->is_phi()){
-                        std::cout<<"copy:"<<(instr->get_name())<<std::endl;
+                        // std::cout<<"copy:"<<(instr->get_name())<<std::endl;
                         for(auto &Ci : pout){
                             if(Ci->members_.count(instr)){
                                 Ci->members_.erase(instr);
