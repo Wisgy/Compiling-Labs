@@ -136,7 +136,6 @@ GVN::partitions GVN::join(const partitions &P1, const partitions &P2) {
     if((*P2.begin())->index_==0)
         return P1;
     partitions P;
-    // if(P1==P2)std::cout<<"Really surprise your mother fucker!"<<std::endl;
     for(auto &Ci : P1)
         for(auto &Cj : P2){
             auto Ck = intersect(Ci, Cj);
@@ -171,7 +170,7 @@ std::shared_ptr<CongruenceClass> GVN::intersect(std::shared_ptr<CongruenceClass>
         Ck->leader_=*Ck->members_.begin();
     } 
 
-    if(Ck->value_phi_==nullptr&&Ck->members_.size()==0){//if Ck == {} 
+    if(Ck->members_.size()==0){//if Ck == {} 
         // delete Ck;
         return nullptr;
     }
@@ -214,7 +213,6 @@ void GVN::detectEquivalences() {
             }
             else if(pre_bb.size()==1){
                 pout = pout_[*pre_bb1];
-                // utils::print_partitions(pout);
             }
             else{
                 pout = clone(top);
@@ -222,11 +220,6 @@ void GVN::detectEquivalences() {
             for(auto &instr : bb->get_instructions()){
                 // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_call()&&instr.get_name()=="")continue;
-                // if(instr.is_phi()){
-                //     bool exist=false;
-                //     for(auto Ci : pout)if(Ci->members_.count(&instr)){exist=true;break;}
-                //     if(exist)continue;
-                // }
                 pout = transferFunction(&instr,pout);
             }
             //add copy statement
@@ -365,13 +358,34 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
             if(flag)
                 rhs=VarExpression::create(0);
         }
-        if(instr->isBinary())
-            return BinaryExpression::create(instr->get_instr_type(), lhs, rhs);
-        else 
+        lhs_is_cons = lhs->is_constant();
+        rhs_is_cons = rhs->is_constant();
+        if(lhs_is_cons&&rhs_is_cons){
+            auto cons = folder_->compute(instr, std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons(), 
+                                        std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
+            return ConstantExpression::create(cons);
+        }
+        else
             return BinaryExpression::create(instr->get_instr_type(), lhs, rhs);
         
     }
-    else if(instr->get_name()!="")return VarExpression::create(next_value_number_++);
+    else if(op_num==1){
+        for(auto &C : pin){
+            if(C->members_.count(instr->get_operand(0))){
+                lhs=C->value_expr_;
+                flag=false;
+                break;
+            }
+        }
+        Constant* constant;
+        bool is_cons_oper = dynamic_cast<Constant *>(instr->get_operand(0));
+        bool is_cons_expr = lhs->is_constant();
+        if(is_cons_oper) constant = dynamic_cast<Constant *>(instr->get_operand(0));
+        else if(is_cons_expr) constant = std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons();
+        if(is_cons_oper||is_cons_expr)return ConstantExpression::create(folder_->compute(instr, constant));
+        else return VarExpression::create(next_value_number_++);
+    }
+    else return VarExpression::create(next_value_number_++);
     return nullptr;
 }
 
@@ -397,8 +411,9 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
         pout.clear();
         std::shared_ptr<CongruenceClass> Ck = std::make_shared<CongruenceClass>(0);
         Ck->index_=next_value_number_++;
-        Ck->leader_=x;
         Ck->value_expr_=ve;
+        if(Ck->value_expr_->is_constant())Ck->leader_=std::dynamic_pointer_cast<ConstantExpression>(Ck->value_expr_)->get_cons();
+        else Ck->leader_=x;
         Ck->value_phi_=vpf;
         Ck->members_.insert(x);
         pout.insert(Ck);
@@ -407,9 +422,6 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
         for(auto &Ci : pout){
             if(Ci->value_expr_==ve || (vpf!=nullptr&&Ci->value_phi_==vpf)){
                 Ci->members_.insert(x);
-                Ci->value_expr_=ve;
-                Ci->value_phi_=vpf;
-                // std::cout<<"must"<<std::endl;
                 flag=false;
                 break;
             }
@@ -417,8 +429,9 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
         if(flag){
             std::shared_ptr<CongruenceClass> Ck = std::make_shared<CongruenceClass>(0);
             Ck->index_=next_value_number_++;
-            Ck->leader_=x;
             Ck->value_expr_=ve;
+            if(Ck->value_expr_->is_constant())Ck->leader_=std::dynamic_pointer_cast<ConstantExpression>(Ck->value_expr_)->get_cons();
+            else Ck->leader_=x;
             Ck->value_phi_=vpf;
             Ck->members_.insert(x);
             pout.insert(Ck);
@@ -621,7 +634,7 @@ bool operator==(const GVN::partitions &p1, const GVN::partitions &p2) {
 bool CongruenceClass::operator==(const CongruenceClass &other) const {
     // TODO: which fields need to be compared?
     if(this->members_.size()!=other.members_.size())return false;
-    // if(!(this->value_phi_==other.value_phi_))return false;
+    if(!(this->leader_==other.leader_))return false;
     for(auto &mem : other.members_){
         if(this->members_.count(mem))continue;
         else return false;

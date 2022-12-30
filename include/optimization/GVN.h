@@ -103,6 +103,7 @@ class ConstantExpression : public Expression {
     static std::shared_ptr<ConstantExpression> create(Constant *c) { return std::make_shared<ConstantExpression>(c); }
     virtual std::string print() { return c_->print(); }
     // we leverage the fact that constants in lightIR have unique addresses
+    Constant* get_cons() const { return c_; }
     bool equiv(const ConstantExpression *other) const { return c_ == other->c_; }
     ConstantExpression(Constant *c) : Expression(e_constant), c_(c) {}
 
