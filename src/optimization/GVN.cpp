@@ -192,14 +192,14 @@ void GVN::detectEquivalences() {
         pout_[&bb] = top;
     }
     // iterate until converge
-    // std::cout<<"func:"<<(func_->get_name())<<std::endl;
+    std::cout<<"func:"<<(func_->get_name())<<std::endl;
     do {
         changed = false;
         partitions pout;
         // see the pseudo code in documentation
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
             auto bb=&bb1;
-            // std::cout<<(bb->get_name())<<std::endl;
+            std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
             auto pre_bb = bb->get_pre_basic_blocks();
             // iterate through all instructions in the block
@@ -215,11 +215,28 @@ void GVN::detectEquivalences() {
                 pout = pout_[*pre_bb1];
             }
             else{
-                pout = clone(top);
+                partitions entry;
+                for(auto &arg : func_->get_args()){//arguments
+                    auto C = createCongruenceClass(next_value_number_++);
+                    C->leader_=arg;
+                    C->members_.insert(arg);
+                    C->value_expr_=VarExpression::create(arg);
+                    entry.insert(C);
+                }
+                for(auto &g_v : m_->get_global_variable()){//global_value
+                    auto g_V=&g_v;
+                    auto C = createCongruenceClass(next_value_number_++);
+                    C->leader_=g_V;
+                    C->members_.insert(g_V);
+                    C->value_expr_=VarExpression::create(g_V);
+                    entry.insert(C);
+                }
+                if(entry.size()==0)pout=clone(top);
+                else pout = entry;
             }
             for(auto &instr : bb->get_instructions()){
-                // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
-                if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_call()&&instr.get_name()=="")continue;
+                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
+                if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
             //add copy statement
@@ -255,7 +272,7 @@ void GVN::detectEquivalences() {
                             }
                             else{
                                 C->leader_=instr;
-                                C->value_expr_=VarExpression::create(C->index_);
+                                C->value_expr_=VarExpression::create(instr);
                             }
                             C->members_.insert(instr);
                             if((*pout.begin())->index_==0)pout.clear();
@@ -266,6 +283,13 @@ void GVN::detectEquivalences() {
                 }
             }
             // check changes in pout
+            // for(auto & C : pout){
+            //     std::cout<<"[";
+            //     for(auto &mem : C->members_){
+            //         std::cout<<(mem->get_name())<<",";
+            //     }
+            //     std::cout<<"]"<<std::endl;
+            // }
             if(!(pout_[bb] == pout)){
                 pout_[bb] = pout;
                 changed = true;
@@ -293,11 +317,30 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 }
             }
             for(;op<=op_num;op++){
-                call_exp->arg_insert(VarExpression::create(next_value_number_++)); 
+                call_exp->arg_insert(VarExpression::create(instr)); 
             }
             return call_exp;
         }
-        else return VarExpression::create(next_value_number_);
+        else return CallExpression::create(instr);
+    }
+    else if(instr->is_gep()){
+        auto expr = PtrExpression::create();
+        for(int i=0;i<op_num;i++){
+            if(dynamic_cast<Constant *>(instr->get_operand(i)))
+                expr->arg_insert(ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(i))));
+            else {
+                for(auto &C : pin){
+                    if(C->members_.count(instr->get_operand(i))){
+                        expr->arg_insert(C->value_expr_);
+                        flag = false;
+                        break;
+                    }
+                }
+                if(flag)
+                    expr->arg_insert(VarExpression::create(nullptr));
+            }
+        }
+        return expr;
     }
     else if(op_num==4&&instr->is_phi()){
         if(dynamic_cast<Constant *>(instr->get_operand(0)))
@@ -311,7 +354,7 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 }
             }
             if(flag)
-                lhs=VarExpression::create(0);
+                lhs=VarExpression::create(nullptr);
         }
         if(dynamic_cast<Constant *>(instr->get_operand(2)))
             rhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(2)));
@@ -324,7 +367,7 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 }
             }
             if(flag)
-                rhs=VarExpression::create(0);
+                rhs=VarExpression::create(nullptr);
         }
         return PhiExpression::create(lhs, rhs);
     }
@@ -342,7 +385,7 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 }
             }
             if(flag)
-                lhs=VarExpression::create(0);
+                lhs=VarExpression::create(nullptr);
         }
         flag=true;
         if(rhs_is_cons)
@@ -356,7 +399,7 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 }
             }
             if(flag)
-                rhs=VarExpression::create(0);
+                rhs=VarExpression::create(nullptr);
         }
         lhs_is_cons = lhs->is_constant();
         rhs_is_cons = rhs->is_constant();
@@ -383,9 +426,9 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
         if(is_cons_oper) constant = dynamic_cast<Constant *>(instr->get_operand(0));
         else if(is_cons_expr) constant = std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons();
         if(is_cons_oper||is_cons_expr)return ConstantExpression::create(folder_->compute(instr, constant));
-        else return VarExpression::create(next_value_number_++);
+        else return VarExpression::create(instr);
     }
-    else return VarExpression::create(next_value_number_++);
+    else return VarExpression::create(instr);
     return nullptr;
 }
 
@@ -404,7 +447,7 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     //ve = valueExpr(e)
     auto ve = valueExpr(x, pin);
     //vpf = valuePhiFunc(ve,PINs)
-    auto vpf = valuePhiFunc(ve, pin);
+    auto vpf = valuePhiFunc(ve, pin, x);
     //if ve or vpf is in a class Ci in POUTs
     bool flag = true;
     if((*pin.begin())->index_==0){
@@ -440,7 +483,7 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     return pout;
 }
 
-shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const partitions &P) {
+shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const partitions &P, Instruction *x) {
     // TODO:
     if(ve==nullptr)return nullptr;
     bool flag=false;
@@ -456,20 +499,30 @@ shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const par
         auto ve_op=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_op();
         auto ve_new_l=BinaryExpression::create(ve_op, std::dynamic_pointer_cast<PhiExpression>(ve_lhs)->get_lhs(), std::dynamic_pointer_cast<PhiExpression>(ve_rhs)->get_lhs());
         auto ve_new_r=BinaryExpression::create(ve_op, std::dynamic_pointer_cast<PhiExpression>(ve_lhs)->get_rhs(), std::dynamic_pointer_cast<PhiExpression>(ve_rhs)->get_rhs());
-        auto vi=getVN(P, ve_new_l);
+        auto vi=getVN(P, ve_new_l, x);
         if(vi==nullptr)
-            vi=valuePhiFunc(ve_new_l, P);   
-        auto vj=getVN(P, ve_new_r);
+            vi=valuePhiFunc(ve_new_l, P, x);   
+        auto vj=getVN(P, ve_new_r, x);
         if(vj==nullptr)
-            vj=valuePhiFunc(ve_new_r, P);
+            vj=valuePhiFunc(ve_new_r, P, x);
         if(vi!=nullptr&&vj!=nullptr)
             return PhiExpression::create(vi, vj);
     }
     return nullptr;
 }
 
-shared_ptr<Expression> GVN::getVN(const partitions &pout, shared_ptr<Expression> ve) {
+shared_ptr<Expression> GVN::getVN(const partitions &pout, shared_ptr<Expression> ve, Instruction *x) {
     // TODO: return what?
+    auto lhs = std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs();
+    auto rhs = std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs();
+    bool lhs_is_cons = lhs->is_constant();
+    bool rhs_is_cons = rhs->is_constant();
+    if(lhs_is_cons&&rhs_is_cons){
+        auto cons = folder_->compute(x, 
+                                    std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons(), 
+                                    std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
+        return ConstantExpression::create(cons);
+    }
     for(auto &CC : pout){
         if(CC->value_phi_!=nullptr){
             if(CC->value_phi_->get_lhs()==ve)return CC->value_phi_->get_lhs();
@@ -576,10 +629,16 @@ bool GVNExpression::operator==(const Expression &lhs, const Expression &rhs) {
     case Expression::e_phi: return equiv_as<PhiExpression>(lhs, rhs);
     case Expression::e_var: return equiv_as<VarExpression>(lhs, rhs);
     case Expression::e_call: return equiv_as<CallExpression>(lhs, rhs);
+    case Expression::e_ptr: return equiv_as<PtrExpression>(lhs, rhs);
     }
 }
 
 bool GVNExpression::operator==(const shared_ptr<Expression> &lhs, const shared_ptr<Expression> &rhs) {
+    if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
+        return true;
+    return lhs and rhs and *lhs == *rhs;
+}
+bool GVNExpression::operator==(const std::shared_ptr<PtrExpression> &lhs, const std::shared_ptr<PtrExpression> &rhs) {
     if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
         return true;
     return lhs and rhs and *lhs == *rhs;
