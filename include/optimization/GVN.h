@@ -39,7 +39,7 @@ class ConstFolder {
 class Expression {
   public:
     // TODO: you need to extend expression types according to testcases
-    enum gvn_expr_t { e_constant, e_bin, e_phi, e_var, e_call, e_ptr};
+    enum gvn_expr_t { e_constant, e_bin, e_phi, e_var, e_call, e_gep, e_cmp, e_fcmp, e_single};
     Expression(gvn_expr_t t) : expr_type(t) {}
     virtual ~Expression() = default;
     virtual std::string print() = 0;
@@ -49,7 +49,10 @@ class Expression {
     bool is_phi() const { return get_expr_type() == e_phi;}
     bool is_var() const { return get_expr_type() == e_var;}
     bool is_call() const { return get_expr_type() == e_call;}
-    bool is_ptr() const { return get_expr_type() == e_ptr;}
+    bool is_gep() const { return get_expr_type() == e_gep;}
+    bool is_cmp() const { return get_expr_type() == e_cmp;}
+    bool is_fcmp() const { return get_expr_type() == e_fcmp;}
+    bool is_single() const { return get_expr_type() == e_single;}
   private:
     gvn_expr_t expr_type;
 };
@@ -57,13 +60,78 @@ class Expression {
 bool operator==(const std::shared_ptr<Expression> &lhs, const std::shared_ptr<Expression> &rhs);
 bool operator==(const GVNExpression::Expression &lhs, const GVNExpression::Expression &rhs);
 
-class PtrExpression : public Expression {
+class SingleExpression : public Expression {
   public:
-    static std::shared_ptr<PtrExpression> create() { return std::make_shared<PtrExpression>(); }
+    static std::shared_ptr<SingleExpression> create(Instruction::OpID op, std::shared_ptr<Expression> oper) {
+        return std::make_shared<SingleExpression>(op, oper);
+    }
+    virtual std::string print() { return "single_operand"; }
+    bool equiv(const SingleExpression *other) const {
+        if (op_ == other->op_ and *oper_ == *other->get_oper())
+            return true;
+        else
+            return false;
+    }
+    Instruction::OpID get_op() const {return op_;}
+    std::shared_ptr<Expression> get_oper() const {return oper_;}
+    SingleExpression(Instruction::OpID op, std::shared_ptr<Expression> oper)
+        : Expression(e_single), op_(op), oper_(oper) {}
+
+  private:
+    Instruction::OpID op_;
+    std::shared_ptr<Expression> oper_;
+};
+class FCmpExpression : public Expression {
+  public:
+    static std::shared_ptr<FCmpExpression> create(FCmpInst::CmpOp op, std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs) {
+        return std::make_shared<FCmpExpression>(op, lhs, rhs);
+    }
+    virtual std::string print() { return "FCmp"; }
+    bool equiv(const FCmpExpression *other) const {
+        if (op_ == other->op_ and *lhs_ == *other->lhs_ and *rhs_ == *other->rhs_)
+            return true;
+        else
+            return false;
+    }
+    FCmpInst::CmpOp get_op() const {return op_;}
+    std::shared_ptr<Expression> get_lhs() const {return lhs_;}
+    std::shared_ptr<Expression> get_rhs() const {return rhs_;}
+    FCmpExpression(FCmpInst::CmpOp op, std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs)
+        : Expression(e_fcmp), op_(op), lhs_(lhs), rhs_(rhs) {}
+
+  private:
+    FCmpInst::CmpOp op_;
+    std::shared_ptr<Expression> lhs_, rhs_;
+};
+class CmpExpression : public Expression {
+  public:
+    static std::shared_ptr<CmpExpression> create(CmpInst::CmpOp op, std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs) {
+        return std::make_shared<CmpExpression>(op, lhs, rhs);
+    }
+    virtual std::string print() { return "Cmp"; }
+    bool equiv(const CmpExpression *other) const {
+        if (op_ == other->op_ and *lhs_ == *other->lhs_ and *rhs_ == *other->rhs_)
+            return true;
+        else
+            return false;
+    }
+    CmpInst::CmpOp get_op() const {return op_;}
+    std::shared_ptr<Expression> get_lhs() const {return lhs_;}
+    std::shared_ptr<Expression> get_rhs() const {return rhs_;}
+    CmpExpression(CmpInst::CmpOp op, std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs)
+        : Expression(e_cmp), op_(op), lhs_(lhs), rhs_(rhs) {}
+
+  private:
+    CmpInst::CmpOp op_;
+    std::shared_ptr<Expression> lhs_, rhs_;
+};
+class GepExpression : public Expression {
+  public:
+    static std::shared_ptr<GepExpression> create() { return std::make_shared<GepExpression>(); }
     virtual std::string print() { return "getelementptr"; }
-    std::set<std::shared_ptr<Expression>> get_args() const {return args;}
-    void arg_insert(std::shared_ptr<Expression> arg) {args.insert(arg);}
-    bool equiv(const PtrExpression *other) const {
+    std::vector<std::shared_ptr<Expression>> get_args() const {return args;}
+    void arg_insert(std::shared_ptr<Expression> arg) {args.push_back(arg);}
+    bool equiv(const GepExpression *other) const {
         if(args.size()!=other->get_args().size())return false;
         auto lhs = args.begin();
         auto args2 = other->get_args();
@@ -74,9 +142,9 @@ class PtrExpression : public Expression {
         }
         return true;
     }
-    PtrExpression() : Expression(e_ptr) {}
+    GepExpression() : Expression(e_gep) {}
   private:
-    std::set<std::shared_ptr<Expression>> args;
+    std::vector<std::shared_ptr<Expression>> args;
 };
 
 class CallExpression : public Expression {
@@ -86,15 +154,18 @@ class CallExpression : public Expression {
     virtual std::string print() { return func==nullptr?"no_pure_func":func->get_name(); }
     Function* get_func() const {return func;}
     Instruction* get_instr() const {return instr;}
-    std::set<std::shared_ptr<Expression>> get_args() const {return args;}
-    void arg_insert(std::shared_ptr<Expression> arg) {args.insert(arg);};
+    std::vector<std::shared_ptr<Expression>> get_args() const {return args;}
+    void arg_insert(std::shared_ptr<Expression> arg) {args.push_back(arg);};
     bool equiv(const CallExpression *other) const {
         if(instr!=nullptr)
             if(instr==other->get_instr())return true;
             else return false;
         else if (func==other->get_func()&&args.size()==other->get_args().size()){
-            for(auto &arg : other->get_args()){
-              if(args.count(arg))continue;
+            auto lhs = args.begin();
+            auto args2 = other->get_args();
+            auto rhs = args2.begin();
+            for(;lhs!=args.end();lhs++,rhs++){
+              if(*lhs==*rhs)continue;
               else return false;
             }
             return true;
@@ -108,7 +179,7 @@ class CallExpression : public Expression {
   private:
     Function* func;
     Instruction* instr;
-    std::set<std::shared_ptr<Expression>> args;
+    std::vector<std::shared_ptr<Expression>> args;
 };
 class VarExpression : public Expression {
   public:
@@ -189,7 +260,10 @@ class PhiExpression : public Expression {
   private:
     std::shared_ptr<Expression> lhs_, rhs_;
 };
-bool operator==(const std::shared_ptr<PtrExpression> &lhs, const std::shared_ptr<PtrExpression> &rhs);
+bool operator==(const std::shared_ptr<SingleExpression> &lhs, const std::shared_ptr<SingleExpression> &rhs);
+bool operator==(const std::shared_ptr<FCmpExpression> &lhs, const std::shared_ptr<FCmpExpression> &rhs);
+bool operator==(const std::shared_ptr<CmpExpression> &lhs, const std::shared_ptr<CmpExpression> &rhs);
+bool operator==(const std::shared_ptr<GepExpression> &lhs, const std::shared_ptr<GepExpression> &rhs);
 bool operator==(const std::shared_ptr<CallExpression> &lhs, const std::shared_ptr<CallExpression> &rhs);
 bool operator==(const std::shared_ptr<VarExpression> &lhs, const std::shared_ptr<VarExpression> &rhs);
 bool operator==(const std::shared_ptr<ConstantExpression> &lhs, const std::shared_ptr<ConstantExpression> &rhs);

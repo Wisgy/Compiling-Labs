@@ -111,7 +111,7 @@ static std::string dump_bb2partition(const std::map<BasicBlock *, GVN::partition
     std::string json;
     json += "{";
     for (auto [bb, p] : map)
-        json += "\"" + bb->get_name() + "\": " + dump_partition_json(p) + ",";
+        json += "\"" + bb->get_name() + "\": " + dump_partition_json(p) + ",\n";
     json += "}";
     return json;
 }
@@ -235,7 +235,7 @@ void GVN::detectEquivalences() {
                 else pout = entry;
             }
             for(auto &instr : bb->get_instructions()){
-                // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
+                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
@@ -283,13 +283,13 @@ void GVN::detectEquivalences() {
                 }
             }
             // check changes in pout
-            for(auto & C : pout){
-                std::cout<<"[";
-                for(auto &mem : C->members_){
-                    std::cout<<(mem->get_name())<<",";
-                }
-                std::cout<<"]"<<std::endl;
-            }
+            // for(auto & C : pout){
+            //     std::cout<<"[";
+            //     for(auto &mem : C->members_){
+            //         std::cout<<(mem->get_name())<<",";
+            //     }
+            //     std::cout<<"]"<<std::endl;
+            // }
 
             if(!(pout_[bb] == pout)){
                 pout_[bb] = pout;
@@ -301,37 +301,38 @@ void GVN::detectEquivalences() {
 
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
     // TODO:
-    if(instr==nullptr)return nullptr;
     auto op_num=instr->get_num_operand();
     std::shared_ptr<Expression> lhs,rhs;
     bool flag=true;
-    if(instr->is_call()){
-        if(func_info_->is_pure_function(static_cast<Function*>(instr->get_operand(0)))){
+    if(instr->is_call()){//CallExpression
+        if(func_info_->is_pure_function(static_cast<Function*>(instr->get_operand(0)))){//pure_function
             auto call_exp = CallExpression::create(static_cast<Function*>(instr->get_operand(0)));
             int op=1;
-            for(op=1;op<=op_num;op++){
+            for(;op<op_num;op++){
+                flag = true;
                 for(auto &C : pin){
                     if(C->members_.count(instr->get_operand(op))){
                         call_exp->arg_insert(C->value_expr_);
-                        continue;
+                        flag = false;
+                        break;
                     }
                 }
-            }
-            for(;op<=op_num;op++){
-                call_exp->arg_insert(VarExpression::create(instr)); 
+                if(flag)
+                    call_exp->arg_insert(VarExpression::create(nullptr)); 
             }
             return call_exp;
         }
-        else return CallExpression::create(instr);
+        else return CallExpression::create(instr);//not pure_function
     }
-    else if(instr->is_gep()){
-        auto expr = PtrExpression::create();
-        for(int i=0;i<op_num;i++){
-            if(dynamic_cast<Constant *>(instr->get_operand(i)))
-                expr->arg_insert(ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(i))));
+    else if(instr->is_gep()){//GepExpression
+        auto expr = GepExpression::create();
+        for(int op=0;op<op_num;op++){
+            if(dynamic_cast<Constant *>(instr->get_operand(op)))
+                expr->arg_insert(ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(op))));
             else {
+                flag = true;
                 for(auto &C : pin){
-                    if(C->members_.count(instr->get_operand(i))){
+                    if(C->members_.count(instr->get_operand(op))){
                         expr->arg_insert(C->value_expr_);
                         flag = false;
                         break;
@@ -343,36 +344,36 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
         }
         return expr;
     }
-    else if(op_num==4&&instr->is_phi()){
-        if(dynamic_cast<Constant *>(instr->get_operand(0)))
-            lhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(0)));
-        else {
-            for(auto &C : pin){
-                if(C->members_.count(instr->get_operand(0))){
-                    lhs=C->value_expr_;
-                    flag=false;
-                    break;
-                }
-            }
-            if(flag)
-                lhs=VarExpression::create(nullptr);
-        }
-        if(dynamic_cast<Constant *>(instr->get_operand(2)))
-            rhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(2)));
-        else {
-            for(auto &C : pin){
-                if(C->members_.count(instr->get_operand(2))){
-                    rhs=C->value_expr_;
-                    flag=false;
-                    break;
-                }
-            }
-            if(flag)
-                rhs=VarExpression::create(nullptr);
-        }
-        return PhiExpression::create(lhs, rhs);
-    }
-    else if(op_num==2){
+    // else if(instr->is_phi()){//PhiExpression
+    //     if(dynamic_cast<Constant *>(instr->get_operand(0)))
+    //         lhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(0)));
+    //     else {
+    //         for(auto &C : pin){
+    //             if(C->members_.count(instr->get_operand(0))){
+    //                 lhs=C->value_expr_;
+    //                 flag=false;
+    //                 break;
+    //             }
+    //         }
+    //         if(flag)
+    //             lhs=VarExpression::create(nullptr);
+    //     }
+    //     if(dynamic_cast<Constant *>(instr->get_operand(2)))
+    //         rhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(2)));
+    //     else {
+    //         for(auto &C : pin){
+    //             if(C->members_.count(instr->get_operand(2))){
+    //                 rhs=C->value_expr_;
+    //                 flag=false;
+    //                 break;
+    //             }
+    //         }
+    //         if(flag)
+    //             rhs=VarExpression::create(nullptr);
+    //     }
+    //     return PhiExpression::create(lhs, rhs);
+    // }
+    else if(instr->isBinary()||instr->is_cmp()||instr->is_fcmp()){
         bool lhs_is_cons = dynamic_cast<Constant *>(instr->get_operand(0));
         bool rhs_is_cons = dynamic_cast<Constant *>(instr->get_operand(1));
         if(lhs_is_cons)
@@ -409,11 +410,17 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                                         std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
             return ConstantExpression::create(cons);
         }
-        else
+        else if(instr->isBinary())
             return BinaryExpression::create(instr->get_instr_type(), lhs, rhs);
+        else if(instr->is_cmp())
+            return CmpExpression::create(dynamic_cast<CmpInst *>(instr)->get_cmp_op(), lhs, rhs);
+        else if(instr->is_fcmp())
+            return FCmpExpression::create(dynamic_cast<FCmpInst *>(instr)->get_cmp_op(), lhs, rhs);
         
     }
-    else if(op_num==1){
+    else if(instr->is_zext()||instr->is_fp2si()||instr->is_si2fp()){
+        if(dynamic_cast<Constant *>(instr->get_operand(0)))
+            return ConstantExpression::create(folder_->compute(instr, dynamic_cast<Constant *>(instr->get_operand(0))));
         for(auto &C : pin){
             if(C->members_.count(instr->get_operand(0))){
                 lhs=C->value_expr_;
@@ -421,16 +428,18 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
                 break;
             }
         }
-        Constant* constant;
-        bool is_cons_oper = dynamic_cast<Constant *>(instr->get_operand(0));
-        bool is_cons_expr = lhs->is_constant();
-        if(is_cons_oper) constant = dynamic_cast<Constant *>(instr->get_operand(0));
-        else if(is_cons_expr) constant = std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons();
-        if(is_cons_oper||is_cons_expr)return ConstantExpression::create(folder_->compute(instr, constant));
-        else return VarExpression::create(instr);
-    }
-    else return VarExpression::create(instr);
-    return nullptr;
+        if(flag){
+            lhs = VarExpression::create(nullptr);
+            return SingleExpression::create(instr->get_instr_type(), lhs);
+        }
+        else if(lhs->is_constant())
+            return ConstantExpression::create(folder_->compute(instr, std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons()));
+        else
+            return SingleExpression::create(instr->get_instr_type(), lhs);
+    } 
+    else if(instr->is_alloca()||instr->is_load())
+        return VarExpression::create(instr);
+    else return nullptr;
 }
 
 // instruction of the form `x = e`, mostly x is just e (SSA), but for copy stmt x is a phi instruction in the
@@ -439,47 +448,35 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
 GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     partitions pout = clone(pin);
     // TODO: get different ValueExpr by Instruction::OpID, modify pout
-    //if x is in a class Ci in POUTs    
-    for(auto &Ci : pout){
-        if(Ci->members_.count(x)){
-            Ci->members_.erase(x);
-        }
-    }
+    //if x is in a class Ci in POUTs (I don't think this is needed)
+    // for(auto &Ci : pout){
+    //     if(Ci->members_.count(x)){
+    //         Ci->members_.erase(x);
+    //     }
+    // }
     //ve = valueExpr(e)
     auto ve = valueExpr(x, pin);
     //vpf = valuePhiFunc(ve,PINs)
     auto vpf = valuePhiFunc(ve, pin, x);
     //if ve or vpf is in a class Ci in POUTs
     bool flag = true;
-    if((*pin.begin())->index_==0){
+    if((*pin.begin())->index_==0)
         pout.clear();
-        std::shared_ptr<CongruenceClass> Ck = std::make_shared<CongruenceClass>(0);
-        Ck->index_=next_value_number_++;
+    for(auto &Ci : pout){
+        if(Ci->value_expr_==ve || (vpf!=nullptr&&Ci->value_phi_==vpf)){
+            Ci->members_.insert(x);
+            flag=false;
+            break;
+        }
+    }
+    if(flag){
+        std::shared_ptr<CongruenceClass> Ck = std::make_shared<CongruenceClass>(next_value_number_++);
         Ck->value_expr_=ve;
         if(Ck->value_expr_->is_constant())Ck->leader_=std::dynamic_pointer_cast<ConstantExpression>(Ck->value_expr_)->get_cons();
         else Ck->leader_=x;
         Ck->value_phi_=vpf;
         Ck->members_.insert(x);
         pout.insert(Ck);
-    }
-    else{
-        for(auto &Ci : pout){
-            if(Ci->value_expr_==ve || (vpf!=nullptr&&Ci->value_phi_==vpf)){
-                Ci->members_.insert(x);
-                flag=false;
-                break;
-            }
-        }
-        if(flag){
-            std::shared_ptr<CongruenceClass> Ck = std::make_shared<CongruenceClass>(0);
-            Ck->index_=next_value_number_++;
-            Ck->value_expr_=ve;
-            if(Ck->value_expr_->is_constant())Ck->leader_=std::dynamic_pointer_cast<ConstantExpression>(Ck->value_expr_)->get_cons();
-            else Ck->leader_=x;
-            Ck->value_phi_=vpf;
-            Ck->members_.insert(x);
-            pout.insert(Ck);
-        }
     }
     return pout;
 }
@@ -630,7 +627,10 @@ bool GVNExpression::operator==(const Expression &lhs, const Expression &rhs) {
     case Expression::e_phi: return equiv_as<PhiExpression>(lhs, rhs);
     case Expression::e_var: return equiv_as<VarExpression>(lhs, rhs);
     case Expression::e_call: return equiv_as<CallExpression>(lhs, rhs);
-    case Expression::e_ptr: return equiv_as<PtrExpression>(lhs, rhs);
+    case Expression::e_gep: return equiv_as<GepExpression>(lhs, rhs);
+    case Expression::e_cmp: return equiv_as<CmpExpression>(lhs, rhs);
+    case Expression::e_fcmp: return equiv_as<FCmpExpression>(lhs, rhs);
+    case Expression::e_single: return equiv_as<SingleExpression>(lhs, rhs);
     }
 }
 
@@ -639,7 +639,22 @@ bool GVNExpression::operator==(const shared_ptr<Expression> &lhs, const shared_p
         return true;
     return lhs and rhs and *lhs == *rhs;
 }
-bool GVNExpression::operator==(const std::shared_ptr<PtrExpression> &lhs, const std::shared_ptr<PtrExpression> &rhs) {
+bool GVNExpression::operator==(const std::shared_ptr<SingleExpression> &lhs, const std::shared_ptr<SingleExpression> &rhs) {
+    if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
+        return true;
+    return lhs and rhs and *lhs == *rhs;
+}
+bool GVNExpression::operator==(const std::shared_ptr<FCmpExpression> &lhs, const std::shared_ptr<FCmpExpression> &rhs) {
+    if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
+        return true;
+    return lhs and rhs and *lhs == *rhs;
+}
+bool GVNExpression::operator==(const std::shared_ptr<CmpExpression> &lhs, const std::shared_ptr<CmpExpression> &rhs) {
+    if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
+        return true;
+    return lhs and rhs and *lhs == *rhs;
+}
+bool GVNExpression::operator==(const std::shared_ptr<GepExpression> &lhs, const std::shared_ptr<GepExpression> &rhs) {
     if (lhs == nullptr and rhs == nullptr) // is the nullptr check necessary here?
         return true;
     return lhs and rhs and *lhs == *rhs;
