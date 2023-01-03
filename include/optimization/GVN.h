@@ -218,7 +218,7 @@ struct CongruenceClass {
     bool operator<(const CongruenceClass &other) const { return this->index_ < other.index_; }
     bool operator==(const CongruenceClass &other) const;
 };
-
+bool operator==(const std::shared_ptr<CongruenceClass> &lhs, const std::shared_ptr<CongruenceClass> &rhs);
 namespace std {
 template <>
 // overload std::less for std::shared_ptr<CongruenceClass>, i.e. how to sort the congruence classes

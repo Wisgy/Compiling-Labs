@@ -148,7 +148,7 @@ GVN::partitions GVN::join(const partitions &P1, const partitions &P2) {
 std::shared_ptr<CongruenceClass> GVN::intersect(std::shared_ptr<CongruenceClass> Ci,
                                                 std::shared_ptr<CongruenceClass> Cj) {
     // TODO:
-    if(Ci==Cj)return Ci;
+    if(Ci==Cj)return std::make_shared<CongruenceClass>(*Ci);
     std::shared_ptr<CongruenceClass> Ck = createCongruenceClass();
     size_t index;
     //Ck = Ci ∩ Cj
@@ -235,7 +235,7 @@ void GVN::detectEquivalences() {
                 else pout = entry;
             }
             for(auto &instr : bb->get_instructions()){
-                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
+                // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
@@ -283,13 +283,14 @@ void GVN::detectEquivalences() {
                 }
             }
             // check changes in pout
-            // for(auto & C : pout){
-            //     std::cout<<"[";
-            //     for(auto &mem : C->members_){
-            //         std::cout<<(mem->get_name())<<",";
-            //     }
-            //     std::cout<<"]"<<std::endl;
-            // }
+            for(auto & C : pout){
+                std::cout<<"[";
+                for(auto &mem : C->members_){
+                    std::cout<<(mem->get_name())<<",";
+                }
+                std::cout<<"]"<<std::endl;
+            }
+
             if(!(pout_[bb] == pout)){
                 pout_[bb] = pout;
                 changed = true;
@@ -696,6 +697,15 @@ bool CongruenceClass::operator==(const CongruenceClass &other) const {
     if(!(this->leader_==other.leader_))return false;
     for(auto &mem : other.members_){
         if(this->members_.count(mem))continue;
+        else return false;
+    }
+    return true;
+}
+bool operator==(const std::shared_ptr<CongruenceClass> &lhs, const std::shared_ptr<CongruenceClass> &rhs){
+    if(lhs->members_.size()!=rhs->members_.size())return false;
+    if(!(lhs->leader_==rhs->leader_))return false;
+    for(auto &mem : rhs->members_){
+        if(lhs->members_.count(mem))continue;
         else return false;
     }
     return true;
