@@ -192,14 +192,14 @@ void GVN::detectEquivalences() {
         pout_[&bb] = top;
     }
     // iterate until converge
-    std::cout<<"func:"<<(func_->get_name())<<std::endl;
+    // std::cout<<"func:"<<(func_->get_name())<<std::endl;
     do {
         changed = false;
         partitions pout;
         // see the pseudo code in documentation
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
             auto bb=&bb1;
-            std::cout<<(bb->get_name())<<std::endl;
+            // std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
             auto pre_bb = bb->get_pre_basic_blocks();
             // iterate through all instructions in the block
@@ -235,7 +235,7 @@ void GVN::detectEquivalences() {
                 else pout = entry;
             }
             for(auto &instr : bb->get_instructions()){
-                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
+                // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
@@ -344,35 +344,6 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
         }
         return expr;
     }
-    // else if(instr->is_phi()){//PhiExpression
-    //     if(dynamic_cast<Constant *>(instr->get_operand(0)))
-    //         lhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(0)));
-    //     else {
-    //         for(auto &C : pin){
-    //             if(C->members_.count(instr->get_operand(0))){
-    //                 lhs=C->value_expr_;
-    //                 flag=false;
-    //                 break;
-    //             }
-    //         }
-    //         if(flag)
-    //             lhs=VarExpression::create(nullptr);
-    //     }
-    //     if(dynamic_cast<Constant *>(instr->get_operand(2)))
-    //         rhs=ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(2)));
-    //     else {
-    //         for(auto &C : pin){
-    //             if(C->members_.count(instr->get_operand(2))){
-    //                 rhs=C->value_expr_;
-    //                 flag=false;
-    //                 break;
-    //             }
-    //         }
-    //         if(flag)
-    //             rhs=VarExpression::create(nullptr);
-    //     }
-    //     return PhiExpression::create(lhs, rhs);
-    // }
     else if(instr->isBinary()||instr->is_cmp()||instr->is_fcmp()){
         bool lhs_is_cons = dynamic_cast<Constant *>(instr->get_operand(0));
         bool rhs_is_cons = dynamic_cast<Constant *>(instr->get_operand(1));
