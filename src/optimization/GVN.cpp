@@ -465,7 +465,7 @@ shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const par
     // TODO:
     if(ve==nullptr)return nullptr;
     bool flag=false;
-    if(ve->is_binary()||ve->is_cmp()||ve->is_fcmp()){
+    if(ve->is_binary()){
         auto tmp = std::dynamic_pointer_cast<BinaryExpression>(ve);
         bool lhs_is_phi=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs()->is_phi();
         bool rhs_is_phi=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs()->is_phi();
