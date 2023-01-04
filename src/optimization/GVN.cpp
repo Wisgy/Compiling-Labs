@@ -193,6 +193,7 @@ void GVN::detectEquivalences() {
     }
     // iterate until converge
     // std::cout<<"func:"<<(func_->get_name())<<std::endl;
+    int times=0;
     do {
         changed = false;
         partitions pout;
@@ -296,7 +297,8 @@ void GVN::detectEquivalences() {
                 changed = true;
             }
         }
-    } while (changed);
+        times++;
+    } while (changed&&times<6);
 }
 
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
