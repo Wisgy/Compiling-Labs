@@ -148,7 +148,6 @@ GVN::partitions GVN::join(const partitions &P1, const partitions &P2) {
 std::shared_ptr<CongruenceClass> GVN::intersect(std::shared_ptr<CongruenceClass> Ci,
                                                 std::shared_ptr<CongruenceClass> Cj) {
     // TODO:
-    if(Ci==Cj)return std::make_shared<CongruenceClass>(*Ci);
     std::shared_ptr<CongruenceClass> Ck = createCongruenceClass();
     size_t index;
     //Ck = Ci ∩ Cj
@@ -196,9 +195,9 @@ void GVN::detectEquivalences() {
     int times=0;
     do {
         changed = false;
-        partitions pout;
         // see the pseudo code in documentation
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
+            partitions pout;
             auto bb=&bb1;
             // std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
@@ -213,7 +212,15 @@ void GVN::detectEquivalences() {
                 pout = join(pout_[*pre_bb1], pout_[*pre_bb2]);
             }
             else if(pre_bb.size()==1){
-                pout = pout_[*pre_bb1];
+                for(auto &C : pout_[*pre_bb1]){
+                    std::shared_ptr<CongruenceClass> Ck = createCongruenceClass(C->index_);
+                    Ck->leader_=C->leader_;
+                    Ck->value_expr_=C->value_expr_;
+                    Ck->value_phi_=C->value_phi_;
+                    Ck->members_=C->members_;
+                    pout.insert(Ck);
+                }
+                // pout = pout_[*pre_bb1];
             }
             else{
                 partitions entry;
@@ -297,7 +304,7 @@ void GVN::detectEquivalences() {
                 changed = true;
             }
         }
-        times++;
+        // times++;
     } while (changed&&times<6);
 }
 
