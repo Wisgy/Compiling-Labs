@@ -404,12 +404,13 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
         }
         lhs_is_cons = lhs->is_constant();
         rhs_is_cons = rhs->is_constant();
-        if(lhs_is_cons&&rhs_is_cons){
-            auto cons = folder_->compute(instr, std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons(), 
-                                        std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
-            return ConstantExpression::create(cons);
-        }
-        else if(instr->isBinary())
+        // if(lhs_is_cons&&rhs_is_cons){
+        //     auto cons = folder_->compute(instr, std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons(), 
+        //                                 std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
+        //     return ConstantExpression::create(cons);
+        // }
+        // else 
+        if(instr->isBinary())
             return BinaryExpression::create(instr->get_instr_type(), lhs, rhs);
         else if(instr->is_cmp())
             return CmpExpression::create(dynamic_cast<CmpInst *>(instr)->get_cmp_op(), lhs, rhs);
@@ -419,7 +420,8 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
     }
     else if(instr->is_zext()||instr->is_fp2si()||instr->is_si2fp()){
         if(dynamic_cast<Constant *>(instr->get_operand(0)))
-            return ConstantExpression::create(folder_->compute(instr, dynamic_cast<Constant *>(instr->get_operand(0))));
+            return ConstantExpression::create(dynamic_cast<Constant *>(instr->get_operand(0)));
+            // return ConstantExpression::create(folder_->compute(instr, dynamic_cast<Constant *>(instr->get_operand(0))));
         for(auto &C : pin){
             if(C->members_.count(instr->get_operand(0))){
                 lhs=C->value_expr_;
@@ -431,9 +433,9 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
             lhs = VarExpression::create(nullptr);
             return SingleExpression::create(instr->get_instr_type(), lhs);
         }
-        else if(lhs->is_constant())
-            return ConstantExpression::create(folder_->compute(instr, std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons()));
-        else
+        // else if(lhs->is_constant())
+        //     return ConstantExpression::create(folder_->compute(instr, std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons()));
+        // else
             return SingleExpression::create(instr->get_instr_type(), lhs);
     } 
     else if(instr->is_alloca()||instr->is_load())
@@ -530,12 +532,12 @@ shared_ptr<Expression> GVN::getVN(const partitions &pout, shared_ptr<Expression>
     auto op = std::dynamic_pointer_cast<BinaryExpression>(ve)->get_op();
     bool lhs_is_cons = lhs->is_constant();
     bool rhs_is_cons = rhs->is_constant();
-    if(lhs_is_cons&&rhs_is_cons){
-        auto cons = folder_->compute(op, 
-                                    std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons(), 
-                                    std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
-        return ConstantExpression::create(cons);
-    }
+    // if(lhs_is_cons&&rhs_is_cons){
+    //     auto cons = folder_->compute(op, 
+    //                                 std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons(), 
+    //                                 std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
+    //     return ConstantExpression::create(cons);
+    // }
     for(auto &CC : pout){
         if(CC->value_expr_==ve)return CC->value_expr_;
     }
