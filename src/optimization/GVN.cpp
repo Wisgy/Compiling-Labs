@@ -69,6 +69,20 @@ Constant *ConstFolder::compute(Instruction *instr, Constant *value1) {
     }
 }
 
+Constant *ConstFolder::compute(Instruction::OpID op, Constant *value1, Constant *value2) {
+    switch (op) {
+    case Instruction::add: return ConstantInt::get(get_const_int_value(value1) + get_const_int_value(value2), module_);
+    case Instruction::sub: return ConstantInt::get(get_const_int_value(value1) - get_const_int_value(value2), module_);
+    case Instruction::mul: return ConstantInt::get(get_const_int_value(value1) * get_const_int_value(value2), module_);
+    case Instruction::sdiv: return ConstantInt::get(get_const_int_value(value1) / get_const_int_value(value2), module_);
+    case Instruction::fadd: return ConstantFP::get(get_const_fp_value(value1) + get_const_fp_value(value2), module_);
+    case Instruction::fsub: return ConstantFP::get(get_const_fp_value(value1) - get_const_fp_value(value2), module_);
+    case Instruction::fmul: return ConstantFP::get(get_const_fp_value(value1) * get_const_fp_value(value2), module_);
+    case Instruction::fdiv: return ConstantFP::get(get_const_fp_value(value1) / get_const_fp_value(value2), module_);
+    default: return nullptr;
+    }
+}
+
 namespace utils {
 static std::string print_congruence_class(const CongruenceClass &cc) {
     std::stringstream ss;
@@ -437,7 +451,13 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     //ve = valueExpr(e)
     auto ve = valueExpr(x, pin);
     //vpf = valuePhiFunc(ve,PINs)
-    auto vpf = valuePhiFunc(ve, pin, x);
+    Instruction* l_oper=NULL;
+    Instruction* r_oper=NULL;
+    if(x->isBinary()){
+        l_oper=static_cast<Instruction*>(x->get_operand(0));
+        r_oper=static_cast<Instruction*>(x->get_operand(1));
+    }
+    auto vpf = valuePhiFunc(ve, pin, l_oper, r_oper);
     //if ve or vpf is in a class Ci in POUTs
     bool flag = true;
     if((*pin.begin())->index_==0)
@@ -461,51 +481,57 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     return pout;
 }
 
-shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const partitions &P, Instruction *x) {
+shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const partitions &P, Instruction *l_oper, Instruction *r_oper) {
     // TODO:
     if(ve==nullptr)return nullptr;
+    if(!ve->is_binary())return nullptr;
     bool flag=false;
-    if(ve->is_binary()){
-        auto tmp = std::dynamic_pointer_cast<BinaryExpression>(ve);
-        bool lhs_is_phi=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs()->is_phi();
-        bool rhs_is_phi=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs()->is_phi();
-        if(lhs_is_phi&&rhs_is_phi)flag=true;
-    }
+    auto lhs=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs();
+    auto rhs=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs();
+    if(lhs->is_phi()&&rhs->is_phi())
+        flag=true;
     if(flag){
-        auto ve_lhs=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs();
-        auto ve_rhs=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs();
-        auto ve_op=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_op();
-        auto ve_new_l=BinaryExpression::create(ve_op, std::dynamic_pointer_cast<PhiExpression>(ve_lhs)->get_lhs(), std::dynamic_pointer_cast<PhiExpression>(ve_rhs)->get_lhs());
-        auto ve_new_r=BinaryExpression::create(ve_op, std::dynamic_pointer_cast<PhiExpression>(ve_lhs)->get_rhs(), std::dynamic_pointer_cast<PhiExpression>(ve_rhs)->get_rhs());
-        auto vi=getVN(P, ve_new_l, x);
+        auto lhs_left_bb=l_oper->get_operand(1);
+        auto lhs_right_bb=l_oper->get_operand(3);
+        auto rhs_left_bb=r_oper->get_operand(1);
+        auto rhs_right_bb=r_oper->get_operand(3);
+        if(!(lhs_left_bb==rhs_left_bb&&lhs_right_bb==rhs_right_bb))return nullptr;
+        auto left_bb = static_cast<BasicBlock*>(lhs_left_bb);
+        auto right_bb = static_cast<BasicBlock*>(lhs_right_bb);
+        auto op=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_op();
+        auto lhs_new=BinaryExpression::create(op, std::dynamic_pointer_cast<PhiExpression>(lhs)->get_lhs(), std::dynamic_pointer_cast<PhiExpression>(rhs)->get_lhs());
+        auto rhs_new=BinaryExpression::create(op, std::dynamic_pointer_cast<PhiExpression>(lhs)->get_rhs(), std::dynamic_pointer_cast<PhiExpression>(rhs)->get_rhs());
+        auto vi=getVN(pout_[left_bb], lhs_new);
+        Instruction* l_l_op=static_cast<Instruction*>(l_oper->get_operand(0));
+        Instruction* l_r_op=static_cast<Instruction*>(l_oper->get_operand(2));
+        Instruction* r_l_op=static_cast<Instruction*>(l_oper->get_operand(0));
+        Instruction* r_r_op=static_cast<Instruction*>(l_oper->get_operand(2));
         if(vi==nullptr)
-            vi=valuePhiFunc(ve_new_l, P, x);   
-        auto vj=getVN(P, ve_new_r, x);
+            vi=valuePhiFunc(lhs_new, pout_[left_bb], l_l_op, r_l_op);
+        auto vj=getVN(pout_[right_bb], rhs_new);
         if(vj==nullptr)
-            vj=valuePhiFunc(ve_new_r, P, x);
+            vj=valuePhiFunc(rhs_new, pout_[right_bb], l_r_op, r_r_op);
         if(vi!=nullptr&&vj!=nullptr)
             return PhiExpression::create(vi, vj);
     }
     return nullptr;
 }
 
-shared_ptr<Expression> GVN::getVN(const partitions &pout, shared_ptr<Expression> ve, Instruction *x) {
+shared_ptr<Expression> GVN::getVN(const partitions &pout, shared_ptr<Expression> ve) {
     // TODO: return what?
     auto lhs = std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs();
     auto rhs = std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs();
+    auto op = std::dynamic_pointer_cast<BinaryExpression>(ve)->get_op();
     bool lhs_is_cons = lhs->is_constant();
     bool rhs_is_cons = rhs->is_constant();
     if(lhs_is_cons&&rhs_is_cons){
-        auto cons = folder_->compute(x, 
+        auto cons = folder_->compute(op, 
                                     std::dynamic_pointer_cast<ConstantExpression>(lhs)->get_cons(), 
                                     std::dynamic_pointer_cast<ConstantExpression>(rhs)->get_cons());
         return ConstantExpression::create(cons);
     }
     for(auto &CC : pout){
-        if(CC->value_phi_!=nullptr){
-            if(CC->value_phi_->get_lhs()==ve)return CC->value_phi_->get_lhs();
-            if(CC->value_phi_->get_rhs()==ve)return CC->value_phi_->get_rhs();
-        }
+        if(CC->value_expr_==ve)return CC->value_expr_;
     }
     return nullptr;
 }

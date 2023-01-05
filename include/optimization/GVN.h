@@ -27,6 +27,7 @@ class ConstFolder {
     ConstFolder(Module *m) : module_(m) {}
     Constant *compute(Instruction *instr, Constant *value1, Constant *value2);
     Constant *compute(Instruction *instr, Constant *value1);
+    Constant *compute(Instruction::OpID op, Constant *value1, Constant *value2);
   private:
     Module *module_;
 };
@@ -321,11 +322,11 @@ class GVN : public Pass {
     partitions transferFunction(Instruction *x, partitions pin);
     std::shared_ptr<GVNExpression::PhiExpression> valuePhiFunc(std::shared_ptr<GVNExpression::Expression>,
                                                                const partitions &,
+                                                               Instruction*,
                                                                Instruction*);
     std::shared_ptr<GVNExpression::Expression> valueExpr(Instruction *instr, partitions &pin);
     std::shared_ptr<GVNExpression::Expression> getVN(const partitions &pout,
-                                                     std::shared_ptr<GVNExpression::Expression> ve,
-                                                     Instruction* x);
+                                                     std::shared_ptr<GVNExpression::Expression> ve);
 
     // replace cc members with leader
     void replace_cc_members();
