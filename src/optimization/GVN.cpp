@@ -213,7 +213,7 @@ void GVN::detectEquivalences() {
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
             partitions pout;
             auto bb=&bb1;
-            // std::cout<<(bb->get_name())<<std::endl;
+            std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
             auto pre_bb = bb->get_pre_basic_blocks();
             // iterate through all instructions in the block
@@ -305,18 +305,18 @@ void GVN::detectEquivalences() {
                 }
             }
             // check changes in pout
-            // for(auto & C : pout){
-            //     std::cout<<"[";
-            //     for(auto &mem : C->members_){
-            //         std::cout<<(mem->get_name())<<",";
-            //     }
-            //     std::cout<<"]"<<std::endl;
-            // }
-
+            for(auto & C : pout){
+                std::cout<<"[";
+                for(auto &mem : C->members_){
+                    std::cout<<(mem->get_name())<<",";
+                }
+                std::cout<<"]"<<std::endl;
+            }
+            
             if(!(pout_[bb] == pout)){
-                pout_[bb] = pout;
                 changed = true;
             }
+            pout_[bb] = pout;
         }
         // times++;
     } while (changed&&times<6);
@@ -486,6 +486,7 @@ shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const par
     if(ve==nullptr)return nullptr;
     if(!ve->is_binary())return nullptr;
     bool flag=false;
+    auto test = std::dynamic_pointer_cast<BinaryExpression>(ve);
     auto lhs=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_lhs();
     auto rhs=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_rhs();
     if(lhs->is_phi()&&rhs->is_phi())
