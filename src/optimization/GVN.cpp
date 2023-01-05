@@ -315,11 +315,16 @@ void GVN::detectEquivalences() {
             
             if(!(pout_[bb] == pout)){
                 changed = true;
+                pout_[bb] = pout;
             }
-            pout_[bb] = pout;
+            
         }
-        // times++;
-    } while (changed&&times<6);
+        times++;
+        // std::cout<<"times:"<<times<<std::endl;
+        // if(times==6)
+        //     std::cout<<"pause"<<std::endl;
+    } while (changed&&times<10);
+    
 }
 
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
@@ -707,6 +712,7 @@ bool operator==(const GVN::partitions &p1, const GVN::partitions &p2) {
         std::set<std::shared_ptr<CongruenceClass>>::iterator j=p2.begin();
         for(; i!=p1.end(); i++,j++){
             if(**i==**j)continue;
+            else if(**i==**j) return false;
             else return false;
         }
     }
@@ -716,6 +722,8 @@ bool operator==(const GVN::partitions &p1, const GVN::partitions &p2) {
 bool CongruenceClass::operator==(const CongruenceClass &other) const {
     // TODO: which fields need to be compared?
     if(this->members_.size()!=other.members_.size())return false;
+    if(!(this->value_expr_==other.value_expr_))return false;
+    if(!(this->value_phi_==other.value_phi_))return false;
     if(!(this->leader_==other.leader_))return false;
     for(auto &mem : other.members_){
         if(this->members_.count(mem))continue;
@@ -725,6 +733,8 @@ bool CongruenceClass::operator==(const CongruenceClass &other) const {
 }
 bool operator==(const std::shared_ptr<CongruenceClass> &lhs, const std::shared_ptr<CongruenceClass> &rhs){
     if(lhs->members_.size()!=rhs->members_.size())return false;
+    if(!(lhs->value_expr_==rhs->value_expr_))return false;
+    if(!(lhs->value_phi_==rhs->value_phi_))return false;
     if(!(lhs->leader_==rhs->leader_))return false;
     for(auto &mem : rhs->members_){
         if(lhs->members_.count(mem))continue;
