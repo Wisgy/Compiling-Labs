@@ -316,13 +316,13 @@ void GVN::detectEquivalences() {
             }
             pout_[bb] = pout;
         }
-        // times++;
+        times++;
         // std::cout<<"times:"<<times<<std::endl;
         // if(times==2)
         //     std::cout<<"pause"<<std::endl;
         // if(times==6)
         //     std::cout<<"pause"<<std::endl;
-    } while (changed);
+    } while (changed||times<15);
     
 }
 
