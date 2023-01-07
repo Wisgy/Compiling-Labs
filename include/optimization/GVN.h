@@ -256,6 +256,8 @@ class PhiExpression : public Expression {
     }
     std::shared_ptr<Expression> get_lhs() const {return lhs_;}
     std::shared_ptr<Expression> get_rhs() const {return rhs_;}
+    void set_lhs(std::shared_ptr<Expression> lhs) {lhs_=lhs;}
+    void set_rhs(std::shared_ptr<Expression> rhs) {rhs_=rhs;}
     PhiExpression(std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs)
         : Expression(e_phi), lhs_(lhs), rhs_(rhs) {}
 

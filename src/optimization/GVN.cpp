@@ -255,7 +255,7 @@ void GVN::detectEquivalences() {
             }
             for(auto &instr : bb->get_instructions()){
                 // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
-                if(instr.is_phi()||instr.is_br()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
+                if(instr.is_br()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
             //add copy statement
@@ -303,13 +303,14 @@ void GVN::detectEquivalences() {
                 }
             }
             
-            // for(auto & C : pout){
-            //     std::cout<<"[";
-            //     for(auto &mem : C->members_){
-            //         std::cout<<(mem->get_name())<<",";
-            //     }
-            //     std::cout<<"]"<<std::endl;
-            // }
+            for(auto & C : pout){
+                std::cout<<"[";
+                for(auto &mem : C->members_){
+                    std::cout<<(mem->get_name())<<",";
+                }
+                std::cout<<"]"<<std::endl;
+            }
+            
             // check changes in pout
             if(!(pout_[bb] == pout)){
                 changed = true;
@@ -317,21 +318,51 @@ void GVN::detectEquivalences() {
             pout_[bb] = pout;
         }
         times++;
-        // std::cout<<"times:"<<times<<std::endl;
-        // if(times==2)
-        //     std::cout<<"pause"<<std::endl;
-        // if(times==6)
-        //     std::cout<<"pause"<<std::endl;
-    } while (changed||times<15);
+        std::cout<<"times:"<<times<<std::endl;
+        if(times==1)
+            std::cout<<"pause"<<std::endl;
+        if(times==4)
+            std::cout<<"pause"<<std::endl;
+    } while (changed);
     
 }
 
 shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
     // TODO:
+    if(instr==nullptr)return nullptr;
+    // std::cout<<(instr->get_name())<<std::endl;
     auto op_num=instr->get_num_operand();
     std::shared_ptr<Expression> lhs,rhs;
     bool flag=true;
-    if(instr->is_call()){//CallExpression
+    if(instr->is_phi()){
+        lhs = nullptr;
+        rhs = nullptr;
+        auto left_bb = static_cast<BasicBlock*>(instr->get_operand(1));
+        auto right_bb = static_cast<BasicBlock*>(instr->get_operand(3));
+        if(left_bb!=NULL){
+            for(auto &Ci : pout_[left_bb]){
+                if(Ci->members_.count(instr->get_operand(0))){
+                    lhs = Ci->value_expr_;
+                    flag = false;
+                    break;
+                }
+            }
+            if(lhs==nullptr)lhs=valueExpr(static_cast<Instruction *>(instr->get_operand(0)), pout_[left_bb]);
+        }
+        if(right_bb!=NULL&&instr->get_num_operand()==4){
+            for(auto &Cj : pout_[right_bb]){
+                if(Cj->members_.count(instr->get_operand(2))){
+                    rhs = Cj->value_expr_;
+                    flag = false;
+                    break;
+                }
+            }
+            if(rhs==nullptr)rhs=valueExpr(static_cast<Instruction *>(instr->get_operand(2)), pout_[right_bb]);
+        }
+        if(lhs==rhs)return flag?lhs:nullptr;
+        else return PhiExpression::create(lhs, rhs);
+    }
+    else if(instr->is_call()){//CallExpression
         if(func_info_->is_pure_function(static_cast<Function*>(instr->get_operand(0)))){//pure_function
             auto call_exp = CallExpression::create(static_cast<Function*>(instr->get_operand(0)));
             int op=1;
@@ -447,13 +478,14 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     partitions pout = clone(pin);
     // TODO: get different ValueExpr by Instruction::OpID, modify pout
     //if x is in a class Ci in POUTs (I don't think this is needed)
-    // for(auto &Ci : pout){
-    //     if(Ci->members_.count(x)){
-    //         Ci->members_.erase(x);
-    //     }
-    // }
+    for(auto &Ci : pin){
+        if(Ci->members_.count(x)){
+            Ci->members_.erase(x);
+            if(Ci->members_.size()==0)pout.erase(Ci);
+        }
+    }
     //ve = valueExpr(e)
-    auto ve = valueExpr(x, pin);
+    auto ve = valueExpr(x, pout);
     //vpf = valuePhiFunc(ve,PINs)
     Instruction* l_oper=NULL;
     Instruction* r_oper=NULL;
@@ -473,12 +505,13 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
             break;
         }
     }
-    if(flag){
+    if(flag&&ve!=nullptr){
         std::shared_ptr<CongruenceClass> Ck = std::make_shared<CongruenceClass>(next_value_number_++);
         Ck->value_expr_=ve;
         if(Ck->value_expr_->is_constant())Ck->leader_=std::dynamic_pointer_cast<ConstantExpression>(Ck->value_expr_)->get_cons();
         else Ck->leader_=x;
-        Ck->value_phi_=vpf;
+        if(vpf==nullptr&&ve->is_phi())Ck->value_phi_=std::dynamic_pointer_cast<PhiExpression>(ve);
+        else Ck->value_phi_=vpf;
         Ck->members_.insert(x);
         pout.insert(Ck);
     }
