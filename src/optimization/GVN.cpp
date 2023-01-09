@@ -186,8 +186,8 @@ std::shared_ptr<CongruenceClass> GVN::intersect(std::shared_ptr<CongruenceClass>
         return nullptr;
     }
     else if(Ck->value_expr_==nullptr){//Ck!={}, and Ck does not have value number
-        Ck->value_phi_=PhiExpression::create(Ci->value_expr_, Cj->value_expr_);
-        Ck->value_expr_=Ck->value_phi_;
+        Ck->value_expr_=valueExpr(dynamic_cast<Instruction*>(Ck->leader_), pout_[func_->get_entry_block()]);
+        Ck->value_phi_=std::dynamic_pointer_cast<PhiExpression>(Ck->value_expr_);
     }
     Ck->index_=next_value_number_++;
     return Ck;
@@ -255,7 +255,7 @@ void GVN::detectEquivalences() {
             }
             for(auto &instr : bb->get_instructions()){
                 // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
-                if(instr.is_br()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
+                if(instr.is_br()||instr.is_phi()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
             //add copy statement
@@ -275,7 +275,13 @@ void GVN::detectEquivalences() {
                         Value* oper;
                         if(instr->get_operand(1)==bb)oper = instr->get_operand(0);
                         else if(instr->get_operand(3)==bb)oper = instr->get_operand(2);
-                        else continue;
+                        else {
+                            auto C = std::make_shared<CongruenceClass>(0);
+                            C->members_.insert(instr);
+                            C->leader_=instr;
+                            pout.insert(C);
+                            continue;
+                        }
                         bool flag=true;
                         for(auto &CC:pout){
                             if(CC->members_.count(oper)||CC->leader_==oper){
@@ -303,25 +309,31 @@ void GVN::detectEquivalences() {
                 }
             }
             
-            for(auto & C : pout){
-                std::cout<<"[";
-                for(auto &mem : C->members_){
-                    std::cout<<(mem->get_name())<<",";
-                }
-                std::cout<<"]"<<std::endl;
-            }
-            
             // check changes in pout
             if(!(pout_[bb] == pout)){
                 changed = true;
+                std::cout<<"before"<<std::endl;
+                for(auto & C : pout_[bb]){
+                    std::cout<<"[";
+                    for(auto &mem : C->members_)
+                        std::cout<<(mem->get_name())<<",";
+                    std::cout<<"]"<<std::endl;
+                }
+                std::cout<<"after"<<std::endl;
+                for(auto & C : pout){
+                    std::cout<<"[";
+                    for(auto &mem : C->members_)
+                        std::cout<<(mem->get_name())<<",";
+                    std::cout<<"]"<<std::endl;
+                }
             }
-            pout_[bb] = pout;
+            pout_[bb] = clone(pout);
         }
         times++;
         std::cout<<"times:"<<times<<std::endl;
         if(times==1)
             std::cout<<"pause"<<std::endl;
-        if(times==4)
+        if(times==7)
             std::cout<<"pause"<<std::endl;
     } while (changed);
     
@@ -551,7 +563,7 @@ shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const par
         Instruction* r_l_op=static_cast<Instruction*>(r_oper->get_operand(0));
         auto vi=getVN(pout_[left_bb], lhs_new);
         if(vi==nullptr){
-            std::cout<<(lhs_left_bb->get_name())<<std::endl;
+            // std::cout<<(lhs_left_bb->get_name())<<std::endl;
             vi=valuePhiFunc(lhs_new, pout_[left_bb], l_l_op, r_l_op);
         }
         if(lhs_right_bb!=NULL){
@@ -559,10 +571,10 @@ shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const par
             auto rhs_new=BinaryExpression::create(op, std::dynamic_pointer_cast<PhiExpression>(lhs)->get_rhs(), std::dynamic_pointer_cast<PhiExpression>(rhs)->get_rhs());        
             Instruction* l_r_op=static_cast<Instruction*>(l_oper->get_operand(2));
             Instruction* r_r_op=static_cast<Instruction*>(r_oper->get_operand(2));
-            std::cout<<(l_oper->get_name())<<"+"<<(r_oper->get_name())<<std::endl;
+            // std::cout<<(l_oper->get_name())<<"+"<<(r_oper->get_name())<<std::endl;
             auto vj=getVN(pout_[right_bb], rhs_new);
             if(vj==nullptr){
-                std::cout<<(lhs_right_bb->get_name())<<std::endl;
+                // std::cout<<(lhs_right_bb->get_name())<<std::endl;
                 vj=valuePhiFunc(rhs_new, pout_[right_bb], l_r_op, r_r_op);
             }
             if(vi!=nullptr&&vj!=nullptr)
