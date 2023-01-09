@@ -247,7 +247,7 @@ class PhiExpression : public Expression {
     static std::shared_ptr<PhiExpression> create(std::shared_ptr<Expression> lhs, std::shared_ptr<Expression> rhs) {
         return std::make_shared<PhiExpression>(lhs, rhs);
     }
-    virtual std::string print() { return "(phi " + lhs_->print() + " " + rhs_->print() + ")"; }
+    virtual std::string print() { return rhs_?"(phi " + lhs_->print() + " " + rhs_->print() + ")":"(phi " + lhs_->print() + ")"; }
     bool equiv(const PhiExpression *other) const {
         if (*lhs_ == *other->lhs_ and *rhs_ == *other->rhs_)
             return true;

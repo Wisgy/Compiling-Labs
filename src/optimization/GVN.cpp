@@ -337,27 +337,35 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
     if(instr->is_phi()){
         lhs = nullptr;
         rhs = nullptr;
-        auto left_bb = static_cast<BasicBlock*>(instr->get_operand(1));
-        auto right_bb = static_cast<BasicBlock*>(instr->get_operand(3));
-        if(left_bb!=NULL){
-            for(auto &Ci : pout_[left_bb]){
-                if(Ci->members_.count(instr->get_operand(0))){
-                    lhs = Ci->value_expr_;
-                    flag = false;
-                    break;
+        BasicBlock* left_bb = dynamic_cast<BasicBlock*>(instr->get_operand(1));
+        BasicBlock* right_bb = op_num==4?dynamic_cast<BasicBlock*>(instr->get_operand(3)):NULL;
+        if(left_bb){
+            if(dynamic_cast<Constant*>(instr->get_operand(0)))
+                lhs = ConstantExpression::create(dynamic_cast<Constant*>(instr->get_operand(0)));
+            else{
+                for(auto &Ci : pout_[left_bb]){
+                    if(Ci->members_.count(instr->get_operand(0))){
+                        lhs = Ci->value_expr_;
+                        flag = false;
+                        break;
+                    }
                 }
+                if(lhs==nullptr)lhs=valueExpr(static_cast<Instruction *>(instr->get_operand(0)), pout_[left_bb]);
             }
-            if(lhs==nullptr)lhs=valueExpr(static_cast<Instruction *>(instr->get_operand(0)), pout_[left_bb]);
         }
-        if(right_bb!=NULL&&instr->get_num_operand()==4){
-            for(auto &Cj : pout_[right_bb]){
-                if(Cj->members_.count(instr->get_operand(2))){
-                    rhs = Cj->value_expr_;
-                    flag = false;
-                    break;
+        if(right_bb){
+            if(dynamic_cast<Constant*>(instr->get_operand(2)))
+                rhs = ConstantExpression::create(dynamic_cast<Constant*>(instr->get_operand(0)));
+            else{
+                for(auto &Cj : pout_[right_bb]){
+                    if(Cj->members_.count(instr->get_operand(2))){
+                        rhs = Cj->value_expr_;
+                        flag = false;
+                        break;
+                    }
                 }
+                if(rhs==nullptr)rhs=valueExpr(static_cast<Instruction *>(instr->get_operand(2)), pout_[right_bb]);
             }
-            if(rhs==nullptr)rhs=valueExpr(static_cast<Instruction *>(instr->get_operand(2)), pout_[right_bb]);
         }
         if(lhs==rhs)return flag?lhs:nullptr;
         else return PhiExpression::create(lhs, rhs);
@@ -529,20 +537,14 @@ shared_ptr<PhiExpression> GVN::valuePhiFunc(shared_ptr<Expression> ve, const par
     // if(l_oper->is_phi()&&r_oper->is_phi())
         flag=true;
     if(flag){
-        auto lhs_left_bb=l_oper->get_operand(1);
-        auto lhs_right_bb=l_oper->get_operand(3);
-        auto rhs_left_bb=r_oper->get_operand(1);
-        auto rhs_right_bb=r_oper->get_operand(3);
+        auto lhs_left_bb=dynamic_cast<BasicBlock*>(l_oper->get_operand(1));
+        auto lhs_right_bb=dynamic_cast<BasicBlock*>(l_oper->get_operand(3));
+        auto rhs_left_bb=dynamic_cast<BasicBlock*>(r_oper->get_operand(1));
+        auto rhs_right_bb=dynamic_cast<BasicBlock*>(r_oper->get_operand(3));
         if(!(lhs_left_bb==rhs_left_bb&&lhs_right_bb==rhs_right_bb))return nullptr;
-        auto left_bb = static_cast<BasicBlock*>(lhs_left_bb);
-        auto right_bb = static_cast<BasicBlock*>(lhs_right_bb);
+        auto left_bb = dynamic_cast<BasicBlock*>(lhs_left_bb);
+        auto right_bb = dynamic_cast<BasicBlock*>(lhs_right_bb);
         auto op=std::dynamic_pointer_cast<BinaryExpression>(ve)->get_op();
-        // shared_ptr<Expression> l_lhs=std::dynamic_pointer_cast<PhiExpression>(lhs)?std::dynamic_pointer_cast<PhiExpression>(lhs)->get_lhs():std::dynamic_pointer_cast<BinaryExpression>(lhs)->get_lhs();
-        // shared_ptr<Expression> l_rhs=std::dynamic_pointer_cast<PhiExpression>(rhs)?std::dynamic_pointer_cast<PhiExpression>(rhs)->get_lhs():std::dynamic_pointer_cast<BinaryExpression>(rhs)->get_lhs();
-        // shared_ptr<Expression> r_lhs=std::dynamic_pointer_cast<PhiExpression>(lhs)?std::dynamic_pointer_cast<PhiExpression>(lhs)->get_rhs():std::dynamic_pointer_cast<BinaryExpression>(lhs)->get_rhs();
-        // shared_ptr<Expression> r_rhs=std::dynamic_pointer_cast<PhiExpression>(rhs)?std::dynamic_pointer_cast<PhiExpression>(rhs)->get_rhs():std::dynamic_pointer_cast<BinaryExpression>(rhs)->get_rhs();
-        // auto lhs_new=BinaryExpression::create(op, l_lhs, l_rhs);
-        // auto rhs_new=BinaryExpression::create(op, r_lhs, r_rhs);
         auto lhs_new=BinaryExpression::create(op, std::dynamic_pointer_cast<PhiExpression>(lhs)->get_lhs(), std::dynamic_pointer_cast<PhiExpression>(rhs)->get_lhs());
         auto rhs_new=BinaryExpression::create(op, std::dynamic_pointer_cast<PhiExpression>(lhs)->get_rhs(), std::dynamic_pointer_cast<PhiExpression>(rhs)->get_rhs());
         Instruction* l_l_op=static_cast<Instruction*>(l_oper->get_operand(0));
