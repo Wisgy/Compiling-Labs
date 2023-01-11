@@ -329,7 +329,7 @@ void GVN::detectEquivalences() {
             if(pout!=top)
             pout_[bb] = clone(pout);
         }
-        // times++;
+        times++;
         // std::cout<<"times:"<<times<<std::endl;
         // if(times==1)
         //     std::cout<<"pause"<<std::endl;
@@ -339,7 +339,7 @@ void GVN::detectEquivalences() {
         //     std::cout<<"pause"<<std::endl;
         // if(times==12)
         //     std::cout<<"pause"<<std::endl;
-    } while (changed);
+    } while (changed||times<7);
     
 }
 
@@ -496,12 +496,6 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     partitions pout = clone(pin);
     // TODO: get different ValueExpr by Instruction::OpID, modify pout
     //if x is in a class Ci in POUTs (I don't think this is needed)
-    // for(auto &Ci : pin){
-    //     if(Ci->members_.count(x)){
-    //         Ci->members_.erase(x);
-    //         if(Ci->members_.size()==0)pout.erase(Ci);
-    //     }
-    // }
     //ve = valueExpr(e)
     auto ve = valueExpr(x, pout);
     //vpf = valuePhiFunc(ve,PINs)
