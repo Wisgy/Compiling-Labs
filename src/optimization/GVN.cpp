@@ -209,7 +209,6 @@ void GVN::detectEquivalences() {
         changed = false;
         // see the pseudo code in documentation
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
-            partitions pout;
             auto bb=&bb1;
             std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
@@ -221,18 +220,10 @@ void GVN::detectEquivalences() {
             // std::cout<<pre_bb.size()<<std::endl;
             if(pre_bb.size()==2){
                 pre_bb2++;
-                pout = join(pout_[*pre_bb1], pout_[*pre_bb2]);
+                pin_[bb] = join(pout_[*pre_bb1], pout_[*pre_bb2]);
             }
             else if(pre_bb.size()==1){
-                // for(auto &C : pout_[*pre_bb1]){
-                //     std::shared_ptr<CongruenceClass> Ck = createCongruenceClass(C->index_);
-                //     Ck->leader_=C->leader_;
-                //     Ck->value_expr_=C->value_expr_;
-                //     Ck->value_phi_=C->value_phi_;
-                //     Ck->members_=C->members_;
-                //     pout.insert(Ck);
-                // }
-                pout = clone(pout_[*pre_bb1]);
+                pin_[bb] = clone(pout_[*pre_bb1]);
             }
             else{
                 partitions entry;
@@ -251,21 +242,23 @@ void GVN::detectEquivalences() {
                     C->value_expr_=VarExpression::create(g_V);
                     entry.insert(C);
                 }
-                if(entry.size()==0)pout=clone(top);
-                else pout = entry;
+                pin_[bb] = entry;
             }
+            partitions pout;
+            pout = pin_[bb];
             for(auto &instr : bb->get_instructions()){
-                // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
+                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_br()||instr.is_phi()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
             //add copy statement
             auto succ_bb = bb->get_succ_basic_blocks();
             for(auto &suc_bb : succ_bb){
+                if(pout==top)break;
                 for(auto &ins : suc_bb->get_instructions()){
                     auto instr = &ins;
                     if(instr->is_phi()){
-                        std::cout<<"copy:"<<(instr->get_name())<<std::endl;
+                        // std::cout<<"copy:"<<(instr->get_name())<<std::endl;
                         for(auto &Ci : pout){
                             if(Ci->members_.count(instr)){
                                 Ci->members_.erase(instr);
@@ -303,7 +296,6 @@ void GVN::detectEquivalences() {
                                 C->value_expr_=VarExpression::create(instr);
                             }
                             C->members_.insert(instr);
-                            if((*pout.begin())->index_==0)pout.clear();
                             pout.insert(C);
                         }
                     }
@@ -330,6 +322,7 @@ void GVN::detectEquivalences() {
                 }
                 std::cout<<""<<std::endl;
             }
+            if(pout!=top)
             pout_[bb] = clone(pout);
         }
         times++;
@@ -340,7 +333,7 @@ void GVN::detectEquivalences() {
             std::cout<<"pause"<<std::endl;
         if(times==3)
             std::cout<<"pause"<<std::endl;
-        if(times==7)
+        if(times==12)
             std::cout<<"pause"<<std::endl;
     } while (changed);
     
@@ -507,12 +500,12 @@ GVN::partitions GVN::transferFunction(Instruction *x, partitions pin) {
     partitions pout = clone(pin);
     // TODO: get different ValueExpr by Instruction::OpID, modify pout
     //if x is in a class Ci in POUTs (I don't think this is needed)
-    for(auto &Ci : pin){
-        if(Ci->members_.count(x)){
-            Ci->members_.erase(x);
-            if(Ci->members_.size()==0)pout.erase(Ci);
-        }
-    }
+    // for(auto &Ci : pin){
+    //     if(Ci->members_.count(x)){
+    //         Ci->members_.erase(x);
+    //         if(Ci->members_.size()==0)pout.erase(Ci);
+    //     }
+    // }
     //ve = valueExpr(e)
     auto ve = valueExpr(x, pout);
     //vpf = valuePhiFunc(ve,PINs)
