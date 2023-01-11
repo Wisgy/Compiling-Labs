@@ -300,8 +300,9 @@ void GVN::detectEquivalences() {
                 }
             }
             // check changes in pout
-            if(pout!=top)
-                pout_[bb] = clone(pout);
+            if(!(pout_[bb]==pout))
+                changed = true;
+            pout_[bb] = clone(pout);
         }
     } while (changed);
     
