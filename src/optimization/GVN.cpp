@@ -224,14 +224,15 @@ void GVN::detectEquivalences() {
                 pout = join(pout_[*pre_bb1], pout_[*pre_bb2]);
             }
             else if(pre_bb.size()==1){
-                for(auto &C : pout_[*pre_bb1]){
-                    std::shared_ptr<CongruenceClass> Ck = createCongruenceClass(C->index_);
-                    Ck->leader_=C->leader_;
-                    Ck->value_expr_=C->value_expr_;
-                    Ck->value_phi_=C->value_phi_;
-                    Ck->members_=C->members_;
-                    pout.insert(Ck);
-                }
+                // for(auto &C : pout_[*pre_bb1]){
+                //     std::shared_ptr<CongruenceClass> Ck = createCongruenceClass(C->index_);
+                //     Ck->leader_=C->leader_;
+                //     Ck->value_expr_=C->value_expr_;
+                //     Ck->value_phi_=C->value_phi_;
+                //     Ck->members_=C->members_;
+                //     pout.insert(Ck);
+                // }
+                pout = clone(pout_[*pre_bb1]);
             }
             else{
                 partitions entry;
@@ -264,7 +265,7 @@ void GVN::detectEquivalences() {
                 for(auto &ins : suc_bb->get_instructions()){
                     auto instr = &ins;
                     if(instr->is_phi()){
-                        // std::cout<<"copy:"<<(instr->get_name())<<std::endl;
+                        std::cout<<"copy:"<<(instr->get_name())<<std::endl;
                         for(auto &Ci : pout){
                             if(Ci->members_.count(instr)){
                                 Ci->members_.erase(instr);
@@ -276,9 +277,10 @@ void GVN::detectEquivalences() {
                         if(instr->get_operand(1)==bb)oper = instr->get_operand(0);
                         else if(instr->get_operand(3)==bb)oper = instr->get_operand(2);
                         else {
-                            auto C = std::make_shared<CongruenceClass>(0);
+                            auto C = std::make_shared<CongruenceClass>(next_value_number_++);
                             C->members_.insert(instr);
                             C->leader_=instr;
+                            C->value_expr_=VarExpression::create(nullptr);
                             pout.insert(C);
                             continue;
                         }
@@ -326,12 +328,17 @@ void GVN::detectEquivalences() {
                         std::cout<<(mem->get_name())<<",";
                     std::cout<<"]"<<std::endl;
                 }
+                std::cout<<""<<std::endl;
             }
             pout_[bb] = clone(pout);
         }
         times++;
         std::cout<<"times:"<<times<<std::endl;
         if(times==1)
+            std::cout<<"pause"<<std::endl;
+        if(times==2)
+            std::cout<<"pause"<<std::endl;
+        if(times==3)
             std::cout<<"pause"<<std::endl;
         if(times==7)
             std::cout<<"pause"<<std::endl;
