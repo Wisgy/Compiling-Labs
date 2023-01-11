@@ -335,7 +335,7 @@ void GVN::detectEquivalences() {
             std::cout<<"pause"<<std::endl;
         if(times==12)
             std::cout<<"pause"<<std::endl;
-    } while (changed&&times<7);
+    } while (changed);
     
 }
 
