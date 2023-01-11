@@ -329,16 +329,16 @@ void GVN::detectEquivalences() {
             if(pout!=top)
             pout_[bb] = clone(pout);
         }
-        times++;
-        std::cout<<"times:"<<times<<std::endl;
-        if(times==1)
-            std::cout<<"pause"<<std::endl;
-        if(times==2)
-            std::cout<<"pause"<<std::endl;
-        if(times==3)
-            std::cout<<"pause"<<std::endl;
-        if(times==12)
-            std::cout<<"pause"<<std::endl;
+        // times++;
+        // std::cout<<"times:"<<times<<std::endl;
+        // if(times==1)
+        //     std::cout<<"pause"<<std::endl;
+        // if(times==2)
+        //     std::cout<<"pause"<<std::endl;
+        // if(times==3)
+        //     std::cout<<"pause"<<std::endl;
+        // if(times==12)
+        //     std::cout<<"pause"<<std::endl;
     } while (changed);
     
 }
