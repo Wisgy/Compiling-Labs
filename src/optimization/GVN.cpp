@@ -188,9 +188,9 @@ std::shared_ptr<CongruenceClass> GVN::intersect(std::shared_ptr<CongruenceClass>
     }
     else if(Ck->value_expr_==nullptr){//Ck!={}, and Ck does not have value number
         ring_end.insert(Ck->leader_);
-        Ck->value_expr_=valueExpr(dynamic_cast<Instruction*>(Ck->leader_), pout_[func_->get_entry_block()]);
+        // Ck->value_expr_=valueExpr(dynamic_cast<Instruction*>(Ck->leader_), pout_[func_->get_entry_block()]);
+        Ck->value_expr_=PhiExpression::create(Ci->value_expr_, Cj->value_expr_);
         ring_end.erase(Ck->leader_);
-        assert(ring_end.size()==0);
         Ck->value_phi_=std::dynamic_pointer_cast<PhiExpression>(Ck->value_expr_);
     }
     Ck->index_=next_value_number_++;

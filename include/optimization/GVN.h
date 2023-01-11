@@ -189,7 +189,6 @@ class VarExpression : public Expression {
     Value* get_instr() const { return instr;}
     bool equiv(const VarExpression *other) const {
         if (instr==other->get_instr()&&instr!=nullptr&&other->get_instr()!=nullptr)
-        // if (instr==other->get_instr())
             return true;
         else
             return false;
