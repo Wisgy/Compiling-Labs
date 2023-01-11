@@ -247,7 +247,7 @@ void GVN::detectEquivalences() {
             partitions pout;
             pout = pin_[bb];
             for(auto &instr : bb->get_instructions()){
-                std::cout<<"trans:"<<(instr.get_name())<<std::endl;
+                // std::cout<<"trans:"<<(instr.get_name())<<std::endl;
                 if(instr.is_br()||instr.is_phi()||instr.is_ret()||instr.is_store()||instr.is_call()&&instr.get_name()=="")continue;
                 pout = transferFunction(&instr,pout);
             }
@@ -335,7 +335,7 @@ void GVN::detectEquivalences() {
             std::cout<<"pause"<<std::endl;
         if(times==12)
             std::cout<<"pause"<<std::endl;
-    } while (changed);
+    } while (changed&&times<7);
     
 }
 
@@ -355,14 +355,6 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
             if(dynamic_cast<Constant*>(instr->get_operand(0)))
                 lhs = ConstantExpression::create(dynamic_cast<Constant*>(instr->get_operand(0)));
             else{
-                // for(auto &Ci : pout_[left_bb]){
-                //     if(Ci->members_.count(instr->get_operand(0))){
-                //         lhs = Ci->value_expr_;
-                //         flag = false;
-                //         break;
-                //     }
-                // }
-                // if(lhs==nullptr)
                 lhs=valueExpr(static_cast<Instruction *>(instr->get_operand(0)), pout_[left_bb]);
             }
         }
@@ -370,14 +362,6 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
             if(dynamic_cast<Constant*>(instr->get_operand(2)))
                 rhs = ConstantExpression::create(dynamic_cast<Constant*>(instr->get_operand(0)));
             else{
-                // for(auto &Cj : pout_[right_bb]){
-                //     if(Cj->members_.count(instr->get_operand(2))){
-                //         rhs = Cj->value_expr_;
-                //         flag = false;
-                //         break;
-                //     }
-                // }
-                // if(rhs==nullptr)
                 rhs=valueExpr(static_cast<Instruction *>(instr->get_operand(2)), pout_[right_bb]);
             }
         }
