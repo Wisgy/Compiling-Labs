@@ -22,6 +22,7 @@ using namespace GVNExpression;
 using std::string_literals::operator""s;
 using std::shared_ptr;
 // std::set<Value>
+std::set<Value*> ring_end;
 static auto get_const_int_value = [](Value *v) { return dynamic_cast<ConstantInt *>(v)->get_value(); };
 static auto get_const_fp_value = [](Value *v) { return dynamic_cast<ConstantFP *>(v)->get_value(); };
 // Constant Propagation helper, folders are done for you
@@ -186,7 +187,10 @@ std::shared_ptr<CongruenceClass> GVN::intersect(std::shared_ptr<CongruenceClass>
         return nullptr;
     }
     else if(Ck->value_expr_==nullptr){//Ck!={}, and Ck does not have value number
+        ring_end.insert(Ck->leader_);
         Ck->value_expr_=valueExpr(dynamic_cast<Instruction*>(Ck->leader_), pout_[func_->get_entry_block()]);
+        ring_end.erase(Ck->leader_);
+        assert(ring_end.size()==0);
         Ck->value_phi_=std::dynamic_pointer_cast<PhiExpression>(Ck->value_expr_);
     }
     Ck->index_=next_value_number_++;
@@ -354,15 +358,23 @@ shared_ptr<Expression> GVN::valueExpr(Instruction *instr, partitions& pin) {
         if(left_bb){
             if(dynamic_cast<Constant*>(instr->get_operand(0)))
                 lhs = ConstantExpression::create(dynamic_cast<Constant*>(instr->get_operand(0)));
+            else if(ring_end.count(instr->get_operand(0)))
+                lhs = VarExpression::create(instr->get_operand(0));
             else{
+                ring_end.insert(instr->get_operand(0));
                 lhs=valueExpr(static_cast<Instruction *>(instr->get_operand(0)), pout_[left_bb]);
+                ring_end.erase(instr->get_operand(0));
             }
         }
         if(right_bb){
             if(dynamic_cast<Constant*>(instr->get_operand(2)))
                 rhs = ConstantExpression::create(dynamic_cast<Constant*>(instr->get_operand(0)));
+            else if(ring_end.count(instr->get_operand(2)))
+                rhs = VarExpression::create(instr->get_operand(2));
             else{
+                ring_end.insert(instr->get_operand(2));
                 rhs=valueExpr(static_cast<Instruction *>(instr->get_operand(2)), pout_[right_bb]);
+                ring_end.erase(instr->get_operand(2));
             }
         }
         if(lhs==rhs)return lhs;
