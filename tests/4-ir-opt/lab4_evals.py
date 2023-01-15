@@ -11,6 +11,7 @@ from pathlib import Path
 # you can run the script from anywhere!
 cminusfc_path = Path(__file__).absolute().parents[2] / "build/cminusfc"
 cminusfc = str(cminusfc_path)
+cminus_io = str(cminusfc_path.parent)
 
 try:
     from tqdm import tqdm
@@ -50,7 +51,7 @@ def compile_baseline_files(file_lists):
     exec_files = list()
     for each in file_lists:
         exec_file, _ = os.path.splitext(each)
-        COMMAND = "clang -O0 -w " + each + " -o " + exec_file + " -L. -lcminus_io"
+        COMMAND = f"clang -O0 -w {each} -o {exec_file} -L{cminus_io} -lcminus_io"
         try:
             result = subprocess.run(
                 COMMAND,
@@ -63,8 +64,7 @@ def compile_baseline_files(file_lists):
                 exec_files.append(exec_file)
             else:
                 exec_files.append(None)
-                print(
-                    f"\nCompile {each.split('/')[-1]} \033[31;1m failed\033[0m")
+                print(f"\nCompile {each.split('/')[-1]} \033[31;1m failed\033[0m")
         except Exception as _:
             exec_files.append(None)
             print(f"Compile {each.split('/')[-1]} \033[31;1m failed\033[0m")
@@ -94,8 +94,7 @@ def compile_testcases(file_lists, option):
                 exec_files.append(exec_file)
             else:
                 exec_files.append(None)
-                print(
-                    f"\nCompile {each.split('/')[-1]} \033[31;1m failed\033[0m")
+                print(f"\nCompile {each.split('/')[-1]} \033[31;1m failed\033[0m")
         except Exception as _:
             exec_files.append(None)
             print(f"Compile {each.split('/')[-1]} \033[31;1m failed\033[0m")
@@ -157,8 +156,7 @@ def check_if_correct(exec_file, check_mode=True):
                     return False
 
         except Exception as e:
-            print(
-                f"Execute {exec_file.split('/')[-1]} \033[31;1m failed\033[0m")
+            print(f"Execute {exec_file.split('/')[-1]} \033[31;1m failed\033[0m")
             return False
     else:
         return True
@@ -194,8 +192,7 @@ def table_print(testcase, before_optimization, after_optimization, baseline):
             [len(before_optimization), len(after_optimization), len(baseline)]
         )
         if len(before_optimization) < max_len:
-            before_optimization += [None] * \
-                (max_len - len(before_optimization))
+            before_optimization += [None] * (max_len - len(before_optimization))
         if len(after_optimization) < max_len:
             after_optimization += [None] * (max_len - len(after_optimization))
         if len(baseline) < max_len:
@@ -271,18 +268,13 @@ if __name__ == "__main__":
             os.path.dirname(script_path), "testcases/GVN/performance"
         )
         testcases = get_raw_testcases(root_path=root_path)
-        exec_files1 = compile_testcases(
-            file_lists=testcases, option="-mem2reg")
-        results1 = gvn_evaluate(file_lists=exec_files1,
-                                metric_func=get_execute_time)
+        exec_files1 = compile_testcases(file_lists=testcases, option="-mem2reg")
+        results1 = gvn_evaluate(file_lists=exec_files1, metric_func=get_execute_time)
 
-        exec_files2 = compile_testcases(
-            file_lists=testcases, option="-mem2reg -gvn")
-        results2 = gvn_evaluate(file_lists=exec_files2,
-                                metric_func=get_execute_time)
+        exec_files2 = compile_testcases(file_lists=testcases, option="-mem2reg -gvn")
+        results2 = gvn_evaluate(file_lists=exec_files2, metric_func=get_execute_time)
 
-        baseline_files = get_baseline_files(
-            os.path.join(root_path, "baseline"))
+        baseline_files = get_baseline_files(os.path.join(root_path, "baseline"))
         exec_files3 = compile_baseline_files(baseline_files)
         results3 = gvn_evaluate(
             file_lists=exec_files3, metric_func=get_execute_time, check_mode=False
@@ -335,11 +327,9 @@ if __name__ == "__main__":
                             score_list.append((each_base, score))
                     subprocess.call(["rm", "-rf", exec_file + ".ll"])
                 else:
-                    print(
-                        f"\nnCompile {each.split('/')[-1]} \033[31;1m failed\033[0m")
+                    print(f"\nnCompile {each.split('/')[-1]} \033[31;1m failed\033[0m")
             except Exception as _:
-                print(
-                    f"Analyze {each.split('/')[-1]} \033[31;1m failed\033[0m")
+                print(f"Analyze {each.split('/')[-1]} \033[31;1m failed\033[0m")
             progess_bar.update(1)
         progess_bar.close()
 
