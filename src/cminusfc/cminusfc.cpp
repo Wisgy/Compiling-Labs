@@ -1,8 +1,14 @@
+#include "ActiveVars.hpp"
+#include "ConstPropagation.hpp"
+#include "DeadCode.h"
 #include "Dominators.h"
 #include "GVN.h"
+#include "LoopInvHoist.hpp"
+#include "LoopSearch.hpp"
 #include "Mem2Reg.hpp"
 #include "PassManager.hpp"
 #include "cminusf_builder.hpp"
+#include "codegen.hpp"
 #include "logging.hpp"
 
 #include <fstream>
@@ -68,15 +74,11 @@ int main(int argc, char **argv) {
             std::cerr << argv[0] << ": input file " << input_path << " has unknown filetype!" << std::endl;
             return -1;
         } else {
-            if (input_path.substr(pos) != ".cminus") {
-                std::cerr << argv[0] << ": input file " << input_path << " has unknown filetype!" << std::endl;
-                return -1;
-            }
-            if (emit) {
-                target_path = input_path.substr(0, pos);
-            } else {
-                target_path = input_path.substr(0, pos);
-            }
+            // if (input_path.substr(pos) != ".cminus") {
+            //     std::cerr << argv[0] << ": input file " << input_path << " has unknown filetype!" << std::endl;
+            //     return -1;
+            // }
+            target_path = input_path.substr(0, pos);
         }
     }
 
@@ -93,12 +95,22 @@ int main(int argc, char **argv) {
     if (mem2reg) {
         PM.add_pass<Mem2Reg>(emit);
     }
-    if (gvn)
+    if (gvn) {
+        PM.add_pass<DeadCode>(false); // remove some undef
         PM.add_pass<GVN>(emit, dump_json);
+        PM.add_pass<DeadCode>(false); // delete unused instructions created by GVN
+    }
 
     PM.run();
 
     auto IR = m->print();
+
+    CodeGen codegen(m.get());
+    codegen.run();
+
+    std::ofstream target_file(target_path + ".s");
+    target_file << codegen.print();
+    target_file.close();
 
     std::ofstream output_stream;
     auto output_file = target_path + ".ll";
@@ -111,7 +123,7 @@ int main(int argc, char **argv) {
         std::string lib_path = " -L"s + argv[0];
         auto idx = lib_path.rfind('/');
         if (idx != std::string::npos)
-            lib_path.erase(idx);
+            lib_path.erase(lib_path.rfind('/'));
         else
             lib_path.clear();
         auto cmd_str = "clang -O0 -w -no-pie "s + target_path + ".ll -o " + target_path + lib_path + " -lcminus_io";

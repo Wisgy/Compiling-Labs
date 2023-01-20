@@ -1,1 +1,8 @@
-build
+/build/
+.clangd
+compile_commands.json
+/.vscode/
+/.cache/
+test.c
+test
+*.s
