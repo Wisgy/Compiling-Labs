@@ -6,15 +6,14 @@ add_executable(
 
 target_link_libraries(
     cminusfc
+    OP_lib
     IR_lib
     common
     syntax
-    OP_lib
+    codegen
 )
 
 install(
     TARGETS cminusfc
     RUNTIME DESTINATION bin
 )
-
-
