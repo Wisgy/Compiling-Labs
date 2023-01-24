@@ -1,10 +1,6 @@
-#include "ActiveVars.hpp"
-#include "ConstPropagation.hpp"
 #include "DeadCode.h"
 #include "Dominators.h"
 #include "GVN.h"
-#include "LoopInvHoist.hpp"
-#include "LoopSearch.hpp"
 #include "Mem2Reg.hpp"
 #include "PassManager.hpp"
 #include "cminusf_builder.hpp"
@@ -18,9 +14,10 @@
 using namespace std::literals::string_literals;
 
 void print_help(std::string exe_name) {
-    std::cout << "Usage: " << exe_name
-              << " [ -h | --help ] [ -o <target-file> ] [ -emit-llvm ] [-mem2reg] [-gvn] [-dump-json] <input-file>"
-              << std::endl;
+    std::cout
+        << "Usage: " << exe_name
+        << " [ -h | --help ] [ -o <target-file> ] [ -emit-llvm ] [ -S ] [-mem2reg] [-gvn] [-dump-json] <input-file>"
+        << std::endl;
 }
 
 int main(int argc, char **argv) {
@@ -31,6 +28,7 @@ int main(int argc, char **argv) {
     bool gvn = false;
     bool dump_json = false;
     bool emit = false;
+    bool assembly = false;
 
     for (int i = 1; i < argc; ++i) {
         if (argv[i] == "-h"s || argv[i] == "--help"s) {
@@ -48,6 +46,8 @@ int main(int argc, char **argv) {
             emit = true;
         } else if (argv[i] == "-mem2reg"s) {
             mem2reg = true;
+        } else if (argv[i] == "-S"s) {
+            assembly = true;
         } else if (argv[i] == "-gvn"s) {
             gvn = true;
         } else if (argv[i] == "-dump-json"s) {
@@ -105,12 +105,14 @@ int main(int argc, char **argv) {
 
     auto IR = m->print();
 
-    CodeGen codegen(m.get());
-    codegen.run();
-
-    std::ofstream target_file(target_path + ".s");
-    target_file << codegen.print();
-    target_file.close();
+    if (assembly) {
+        CodeGen codegen(m.get());
+        codegen.run();
+        std::ofstream target_file(target_path + ".s");
+        target_file << codegen.print();
+        target_file.close();
+        return 0;
+    }
 
     std::ofstream output_stream;
     auto output_file = target_path + ".ll";
