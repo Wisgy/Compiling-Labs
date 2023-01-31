@@ -35,19 +35,25 @@ void CodeGen::run() {
             output.push_back(".globl " + func.get_name());
             output.push_back(".type " + func.get_name() + ", @function");
             output.push_back(func.get_name() + ":");
-            output.push_back("addi.d $sp, $sp, -16");
-            output.push_back("st.d $ra, $sp, 8");// 假设有st.d $fp, $sp, 0
-            output.push_back("addi.d $fp, $sp, 16");
+            int pos = output.size();// record the location of the following instruction
+            output.push_back("addi.d $sp, $sp, ");
+            output.push_back("st.d $ra, $sp, ");// 假设有st.d $fp, $sp, 0
+            output.push_back("addi.d $fp, $sp, ");
             // argument
-
             // body
             for(auto& bb : func.get_basic_blocks()){
                 visit(&bb);
             }
+            // calculate the memory used by the function
+            int bytes = -offset + 16 + offset%16;
+            // revise the beginning instructions 
+            output[pos] = output[pos] + std::to_string(-bytes);
+            output[pos+1] = output[pos+1] + std::to_string(bytes-8);
+            output[pos+2] = output[pos+2] + std::to_string(bytes);
             // return
             output.push_back("." + func.get_name() +"_return :");
-            output.push_back("ld.d $ra, $sp, 8");
-            output.push_back("addi.d $sp, $sp, 16");
+            output.push_back("ld.d $ra, $sp, " + std::to_string(bytes-8));
+            output.push_back("addi.d $sp, $sp, " + std::to_string(bytes));
             output.push_back("jr $ra");
         }
 }
@@ -56,7 +62,7 @@ void CodeGen::visit(BasicBlock* bb){
     cur_bb = bb;
     output.push_back("." + cur_func->get_name() + "_" + bb->get_name() + ":");
     for(auto& instr : bb->get_instructions()){
-        std::cout<<instr.get_name()<<std::endl;
+        // std::cout<<instr.get_name()<<std::endl;
         switch (instr.get_instr_type()){
             case Instruction::ret: ret_assembly(&instr); break;
             case Instruction::br: br_assembly(&instr); break;
@@ -84,7 +90,7 @@ void CodeGen::visit(BasicBlock* bb){
             case Instruction::phi: break;//活跃变量分析
             case Instruction::call: call_assembly(&instr); break;
             case Instruction::getelementptr: getelementptr_assembly(&instr); break;
-            case Instruction::zext: break;
+            case Instruction::zext: zext_assembly(&instr);break;
             case Instruction::fptosi: fptosi_assembly(&instr); break;
             case Instruction::sitofp: sitofp_assembly(&instr); break;
             default:
@@ -98,10 +104,10 @@ void CodeGen::ret_assembly(Instruction* instr){
     if(is_int||is_float) {
         Value* v = instr->get_operand(0);
         Reg* Rv = GetReg(v);
-        output.push_back((is_int?"or $v0, ":"or $fv0, ") + Rv->print() + ", $r0");
+        output.push_back((is_int?"or $a0, ":"or $fa0, ") + Rv->print() + ", $r0");
         
     }
-    output.push_back("B ." + cur_func->get_name() +"_return");
+    output.push_back("b ." + cur_func->get_name() +"_return");
 }
 void CodeGen::br_assembly(Instruction* instr){
     // TODO: 
@@ -163,13 +169,16 @@ void CodeGen::load_assembly(Instruction* instr){
         else assert(false);
     }
     else{
-        assert(PtOff.find(pt) != PtOff.end());
         int off = PtOff[pt];
-        if(instr->get_type()->is_integer_type())
-            output.push_back("ld.w " + reg->print() + ", $fp, " + std::to_string(off));
-        else if(instr->get_type()->is_float_type())
-            output.push_back("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
+        string inst_tail;
+        string inst_head;
+        if(instr->get_type()->is_integer_type()) inst_head = "ld.w ";
+        else if(instr->get_type()->is_float_type()) inst_head = "fld.s ";
         else assert(false);
+        if(PtOff.find(pt) != PtOff.end()) inst_tail = ", $fp, " + std::to_string(off);
+        else if(ValPos.find(pt) != ValPos.end()) {auto addr = GetReg(pt);inst_tail = ", " + addr->print() + ", 0";}
+        else assert(false);
+        output.push_back(inst_head + reg->print() + inst_tail);
     }
     SetReg(reg, instr);
 }
@@ -189,13 +198,16 @@ void CodeGen::store_assembly(Instruction* instr){
         else assert(false);
     }
     else{
-        assert(PtOff.find(pt) != PtOff.end());
         int off = PtOff[pt];
-        if(type->is_integer_type())
-            output.push_back("st.w " + reg->print() + ", $fp, " + std::to_string(off));
-        else if(type->is_float_type())
-            output.push_back("fst.s " + reg->print() + ", $fp, " + std::to_string(off));
+        string inst_tail;
+        string inst_head;
+        if(type->is_integer_type()) inst_head = "st.w ";
+        else if(type->is_float_type()) inst_head = "fst.s ";
         else assert(false);
+        if(PtOff.find(pt) != PtOff.end()) inst_tail = ", $fp, " + std::to_string(off);
+        else if(ValPos.find(pt) != ValPos.end()) {auto addr = GetReg(pt);inst_tail = ", " + addr->print() + ", 0";}
+        else assert(false);
+        output.push_back(inst_head + reg->print() + inst_tail);
     }
 }
 void CodeGen::cmp_assembly(Instruction* instr){// 暂时无法分别br_cond和op=cmp可能需要活跃变量分析
@@ -241,10 +253,32 @@ void CodeGen::phi_assembly(Instruction* instr){
     SetReg(reg, instr);
 }
 void CodeGen::call_assembly(Instruction* instr){
+    // first store the value of registers
+    // second load the arguments (if the number of arguments is more than 8)store the extra arguments in the memory
+    // third "bl " function_name
+    // fourth restore the value of registers
     assert(false);
 }
 void CodeGen::getelementptr_assembly(Instruction* instr){
-    assert(false);
+    Value* pt = instr->get_operand(0);
+    int arr_off = dynamic_cast<ConstantInt*>(instr->get_operand(1))->get_value();
+    int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(2))->get_value();
+    int arr_size = pt->get_type()->get_size();
+    int elem_size = pt->get_type()->get_pointer_element_type()->get_size();
+    int total_off = arr_off*arr_size + elem_off*elem_size;
+    auto type = pt->get_type()->get_pointer_element_type();
+    auto addr = AllocaReg(instr);
+    if(dynamic_cast<GlobalVariable*>(pt)){
+        auto addr = RandomReg();
+        output.push_back("la.local " + addr->print() + ", " + pt->get_name());
+        output.push_back("addi.w " + addr->print() + ", " + addr->print() + ", " + std::to_string(total_off));
+        SetReg(addr, instr);
+    }
+    else{
+        assert(PtOff.find(pt) != PtOff.end());
+        int off = PtOff[pt] + total_off;
+        PtOff[instr] = off;
+    }
 }
 void CodeGen::zext_assembly(Instruction* instr){
     auto val = instr->get_operand(0);
