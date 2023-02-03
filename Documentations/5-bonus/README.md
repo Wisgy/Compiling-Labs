@@ -48,7 +48,7 @@
 1. 当函数参数个数大于 8 个时，如何传递参数？
 2. 浮点常量、全局变量是如何存储的？
 
-> 可以写一段 C 语言代码，在龙芯上用 `gcc -S` 生成汇编代码，观察汇编代码，思考如何实现。
+> 可以写一段 C 语言代码，将该文件命名为 `test.c`，在龙芯上用 `gcc -include io.h -S test.c` 生成汇编代码，观察汇编代码，思考如何实现。
 
 
 ### 完成代码
@@ -95,15 +95,18 @@ cmake ..
 make
 ```
 
-编译后会产生 `cminusfc`可执行文件，使用 `cminusfc -S test.cminus` 编译 `test.cminus`源文件，生成 `test.s`汇编文件。
+编译后会产生 `cminusfc` 可执行文件，使用 `cminusfc -S test.cminus` 编译 `test.cminus`源文件，生成 `test.s`汇编文件。
 
-> 可以开启 `-mem2reg` 选项来简化 IR
+> 可以选择开启 `cminusfc` 的 `-mem2reg` 选项优化中间代码
 
-学生可以本地运行生成汇编代码，然后传输到龙芯服务器，代码如下：
+学生可以先本地运行生成汇编代码，然后将 `test.s` `io.c` `io.h` 传输到龙芯服务器，再在龙芯服务器上运行:
+
+> 假设 test.c 在仓库根目录下，用户的用户名为 username
 
 ```bash
-scp src/io/io.c username@202.38.75.246
-scp test.s username@202.38.75.246
+build/cminusfc -S test.cminus
+
+scp src/io/io.c src/io/io.h test.s username@202.38.75.246:~/
 ssh username@202.38.75.246
 
 # 以下命令在 ssh 会话中执行
@@ -116,7 +119,7 @@ echo $?
 
 在龙芯服务器，loongnix系统上将源代码编译为汇编代码命令如下，
 
-```
+```bash
 gcc test.s io.c -Wa,--gdwarf2 -o test       # 也可以利用静态链接库进行编译
 gdb test
 ```
