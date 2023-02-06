@@ -81,8 +81,8 @@ class CodeGen {
     void alloca_assembly(Instruction* instr);
     void load_assembly(Instruction* instr);
     void store_assembly(Instruction* instr);
-    void cmp_assembly(Instruction* instr);
-    void fcmp_assembly(Instruction* instr);
+    void cmp_assembly(Instruction* instr, Instruction* refer);
+    void fcmp_assembly(Instruction* instr, Instruction* refer);
     void phi_assembly(Instruction* instr);
     void call_assembly(Instruction* instr);
     void getelementptr_assembly(Instruction* instr);
@@ -112,8 +112,10 @@ class AddrDesc{
     private:
         Value* val_ ;
         Reg* reg_ ;
-        int off_;
+        int off_=0;
 };
+Reg* LinearScanR();
+Reg* LinearScanFR();
 Reg* RandomReg();
 Reg* RandomFReg();
 void SetReg(Reg*, Value* val);
