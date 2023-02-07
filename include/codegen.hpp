@@ -67,6 +67,7 @@ class CodeGen {
 
     void run();
     void visit(BasicBlock* bb);
+    void bb_end_store(BasicBlock* bb);
     void ret_assembly(Instruction* instr);
     void br_assembly(Instruction* instr);
     void binary_assembly(Instruction* instr);
@@ -112,7 +113,7 @@ class AddrDesc{
     private:
         Value* val_ ;
         Reg* reg_ ;
-        int off_=0;
+        int off_=-1;
 };
 Reg* LinearScanR();
 Reg* LinearScanFR();
