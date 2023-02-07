@@ -78,36 +78,39 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         cur_inst = &(*iter);
         out[cur_inst]=OUT[&bb];
         in[cur_inst]=out[cur_inst];
-        in[cur_inst].erase(cur_inst);
+        in[cur_inst].insert(cur_inst);
+        in[cur_inst].erase(suc_inst);
         for(auto op : cur_inst->get_operands())if(dynamic_cast<Instruction*>(op)||dynamic_cast<Argument*>(op)||dynamic_cast<Constant*>(op))in[cur_inst].insert(op);
         suc_inst = cur_inst;
         for(;iter!=bb.get_instructions().begin();iter--){
             cur_inst = &(*iter);
             out[cur_inst] = in[suc_inst];
             in[cur_inst]=out[cur_inst];
-            in[cur_inst].erase(cur_inst);
+            in[cur_inst].insert(cur_inst);
+            in[cur_inst].erase(suc_inst);
             for(auto op : cur_inst->get_operands())if(dynamic_cast<Instruction*>(op)||dynamic_cast<Argument*>(op)||dynamic_cast<Constant*>(op))in[cur_inst].insert(op);
             suc_inst = cur_inst;
         }
         cur_inst = &(*iter);
         out[cur_inst] = in[suc_inst];
         in[cur_inst] = out[cur_inst];
-        in[cur_inst].erase(cur_inst);
+        in[cur_inst].insert(cur_inst);
+        in[cur_inst].erase(suc_inst);
         for(auto op : cur_inst->get_operands())if(dynamic_cast<Instruction*>(op)||dynamic_cast<Argument*>(op)||dynamic_cast<Constant*>(op))in[cur_inst].insert(op);
     }
-    for(auto &bb : func->get_basic_blocks()){
-        std::cout<<bb.get_name()<<std::endl;
-        for(auto &ins : bb.get_instructions()){
-            auto cur_inst = &ins;
-            std::cout<<cur_inst->get_name()<<":\n[";
-            for(auto val : in[cur_inst])
-            if(dynamic_cast<ConstantInt*>(val))std::cout<<dynamic_cast<ConstantInt*>(val)->get_value()<<",";
-            else if(dynamic_cast<ConstantFP*>(val))std::cout<<dynamic_cast<ConstantFP*>(val)->get_value()<<",";
-            else std::cout<<val->get_name()<<", ";
-            std::cout<<"]"<<std::endl;
-        }
-    }
-    std::cout<<std::endl;
+    // for(auto &bb : func->get_basic_blocks()){
+    //     std::cout<<bb.get_name()<<std::endl;
+    //     for(auto &ins : bb.get_instructions()){
+    //         auto cur_inst = &ins;
+    //         std::cout<<cur_inst->get_name()<<":\n[";
+    //         for(auto val : in[cur_inst])
+    //         if(dynamic_cast<ConstantInt*>(val))std::cout<<dynamic_cast<ConstantInt*>(val)->get_value()<<",";
+    //         else if(dynamic_cast<ConstantFP*>(val))std::cout<<dynamic_cast<ConstantFP*>(val)->get_value()<<",";
+    //         else std::cout<<val->get_name()<<", ";
+    //         std::cout<<"]"<<std::endl;
+    //     }
+    // }
+    // std::cout<<std::endl;
 }
 bool is_active(Value* inst, BasicBlock* bb){
     return OUT[bb].find(inst)!=OUT[bb].end();
@@ -145,7 +148,7 @@ void CodeGen::run() {
                     }
                 }
                 else if(arg->get_type()->is_float_type()){
-                    if(f<8)SetReg(&FR[(f++)+4], arg);
+                    if(f<8)SetReg(&FR[f++], arg);
                     else {
                         ValPos[arg].set_off(off);
                         off += arg->get_type()->get_size();
@@ -234,7 +237,10 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                 }
                 assert(ValPos[&inst].get_off()!=-1);
                 int off = ValPos[&inst].get_off();
-                string head = inst.get_type()->is_float_type()?"fst.s " : "st.w ";
+                string head;
+                if(inst.get_type()->is_float_type()) head = "fst.s ";
+                else if(inst.get_type()->is_pointer_type()) head = "st.d ";
+                else head = "st.w ";
                 Reg* reg;
                 if(cur_bb == inst.get_operand(1))
                     reg = GetReg(inst.get_operand(0));
@@ -256,7 +262,8 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                 offset -= R[i].value->get_type()->get_size();
                 off = offset;
             } 
-            output.push_back("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
+            if(R[i].value->get_type()->is_integer_type())output.push_back("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
+            else output.push_back("st.d " + R[i].print() + ", $fp, " + std::to_string(off));
             ValPos[R[i].value].set_off(off);
         }
         else SetReg(&R[i], nullptr);
@@ -281,8 +288,7 @@ void CodeGen::ret_assembly(Instruction* instr){
     if(is_int||is_float) {
         Value* v = instr->get_operand(0);
         Reg* Rv = GetReg(v);
-        output.push_back((is_int?"or $a0, ":"or $fa0, ") + Rv->print() + ", $r0");
-        
+        output.push_back((is_int?"or $a0, " + Rv->print() + ", $r0":"fmov.s $fa0, " + Rv->print()));
     }
     output.push_back("b ." + cur_func->get_name() +"_return");
 }
@@ -346,16 +352,17 @@ void CodeGen::alloca_assembly(Instruction* instr){
     LocalOff[instr] = offset;
 }
 void CodeGen::load_assembly(Instruction* instr){
-    auto reg = AllocaReg(instr);// 此处必须是个整型寄存器
     Value* pt = instr->get_operand(0);
+    Reg* reg;
     if(dynamic_cast<GlobalVariable*>(pt)){
-        auto addr = RandomReg();
+        auto addr = LinearScanR();
         output.push_back("la.local " + addr->print() + ", " + pt->get_name());
         SetReg(addr, nullptr);
+        reg = AllocaReg(instr);
         if(instr->get_type()->is_integer_type())
-            output.push_back("ld.w " + reg->print() + addr->print() + ", 0");
+            output.push_back("ld.w " + reg->print() + ", " + addr->print() + ", 0");
         else if(instr->get_type()->is_float_type())
-            output.push_back("fld.s " + reg->print() + addr->print() + ", 0");
+            output.push_back("fld.s " + reg->print() + ", " + addr->print() + ", 0");
         else assert(false);
     }
     else{
@@ -367,6 +374,7 @@ void CodeGen::load_assembly(Instruction* instr){
         if(LocalOff.find(pt) != LocalOff.end()) inst_tail = ", $fp, " + std::to_string(LocalOff[pt]);
         else if(ValPos.find(pt) != ValPos.end()) {auto addr = GetReg(pt);inst_tail = ", " + addr->print() + ", 0";}
         else assert(false);
+        reg = AllocaReg(instr);
         output.push_back(inst_head + reg->print() + inst_tail);
     }
     SetReg(reg, instr);
@@ -477,9 +485,9 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
     else if(refer->is_zext()){
         string br = "." + cur_func->get_name() + "_" + instr->get_name();
         auto reg = AllocaReg(refer);
-        output.push_back("addi " + reg->print() + ", $zero" + ", 1");
+        output.push_back("addi.w " + reg->print() + ", $zero" + ", 1");
         output.push_back("bceqz $fcc0, " + br);
-        output.push_back("addi " + reg->print() + ", $zero" + ", 0");
+        output.push_back("addi.w " + reg->print() + ", $zero" + ", 0");
         output.push_back(br + ":");
         SetReg(reg, instr);
     }
@@ -517,23 +525,25 @@ void CodeGen::call_assembly(Instruction* instr){
     int i,j,off=0;
     for(i=0,j=0;(i+j+1)<instr->get_num_operand();){
         auto op = instr->get_operand(i+j+1);
-        if(op->get_type()->is_integer_type())
-            if(i++<8){// 寄存器传参
+        if(op->get_type()->is_float_type())
+            if(j++<8){// 寄存器传参
+                auto s_reg = GetReg(op);
+                if(&FR[j-1]!=s_reg)
+                    output.push_back("fmov.s " + FR[j-1].print() + ", " + s_reg->print());
+                SetReg(&FR[j-1], op);
+            }
+            else{//  堆栈传参
+                output.push_back("fst.s " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
+                off += op->get_type()->get_size();
+            }   
+        else if(i++<8){// 寄存器传参
                 auto s_reg = GetReg(op);
                 if(&R[i+3]!=s_reg)
                     output.push_back("or " + R[i+3].print() + ", " + s_reg->print() + ", $zero");
+                SetReg(&R[i+3], op);
             }
-            else{   //  堆栈传参
-                output.push_back("st.w " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
-                off += op->get_type()->get_size();
-            }
-        else if(j++<8){
-            auto s_reg = GetReg(op);
-            if(&FR[j-1]!=s_reg)
-                output.push_back("or " + FR[j-1].print() + ", " + s_reg->print() + ", $zero");
-        }
-        else{
-            output.push_back("fst.s " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
+        else{   //  堆栈传参
+            output.push_back("st.w " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
             off += op->get_type()->get_size();
         }
     }
@@ -549,20 +559,22 @@ void CodeGen::call_assembly(Instruction* instr){
 void CodeGen::getelementptr_assembly(Instruction* instr){
     Value* pt = instr->get_operand(0);
     auto type = pt->get_type()->get_pointer_element_type();
-    auto addr = AllocaReg(instr);
+    Reg* addr;
     if(dynamic_cast<GlobalVariable*>(pt)){
         if(dynamic_cast<ConstantInt*>(instr->get_operand(2))){
             int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(2))->get_value();
             int elem_size = type->get_array_element_type()->get_size();
             output.push_back("la.local " + addr->print() + ", " + pt->get_name());
-            output.push_back("addi.w " + addr->print() + ", " + addr->print() + ", " + std::to_string(elem_off*elem_size));
+            output.push_back("addi.d " + addr->print() + ", " + addr->print() + ", " + std::to_string(elem_off*elem_size));
         }
         else {
-            auto index__reg = GetReg(instr->get_operand(2));
+            auto index_reg = GetReg(instr->get_operand(2));
+            addr = AllocaReg(instr);
+            SetReg(index_reg, nullptr);
             int elem_size = type->get_array_element_type()->get_size();
             output.push_back("la.local " + addr->print() + ", " + pt->get_name());
-            output.push_back("slli.w " + index__reg->print() + ", " + index__reg->print() + ", " + std::to_string((int)(log2(elem_size))));
-            output.push_back("add.w " + addr->print() + ", " + addr->print() + ", " + index__reg->print());
+            output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
+            output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
         }
         SetReg(addr, instr);
     }
@@ -577,25 +589,30 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
             }
             else{
                 auto index_reg = GetReg(instr->get_operand(2));
+                addr = AllocaReg(instr);
                 int elem_size = type->get_array_element_type()->get_size();
-                output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
-                output.push_back("addi.w " + addr->print() + ", $fp, " + std::to_string(LocalOff[pt]));
-                output.push_back("addi.w " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
+                output.push_back("slli.d " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
+                output.push_back("addi.d " + addr->print() + ", $fp, " + std::to_string(LocalOff[pt]));
+                output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
+                SetReg(index_reg, nullptr);
                 SetReg(addr, instr);
             }
         }
         else{
             auto reg = GetReg(pt);
             if(dynamic_cast<ConstantInt*>(instr->get_operand(1))){
+                addr = AllocaReg(instr);
                 int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(1))->get_value();
                 int elem_size = pt->get_type()->get_pointer_element_type()->get_size();
-                output.push_back("addi.w " + addr->print() + ", " + reg->print() + ", " + std::to_string(elem_off*elem_size));
+                output.push_back("addi.d " + addr->print() + ", " + reg->print() + ", " + std::to_string(elem_off*elem_size));
             }
             else{
                 auto index_reg = GetReg(instr->get_operand(1));
+                addr = AllocaReg(instr);
+                SetReg(index_reg, nullptr);
                 int elem_size = type->get_size();
                 output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
-                output.push_back("add.w " + addr->print() + ", " + reg->print() + ", " + index_reg->print());
+                output.push_back("add.d " + addr->print() + ", " + reg->print() + ", " + index_reg->print());
             }
             SetReg(addr, instr);
         }
@@ -621,9 +638,10 @@ void CodeGen::zext_assembly(Instruction* instr){
 void CodeGen::fptosi_assembly(Instruction* instr){
     auto val = instr->get_operand(0);
     auto reg = GetReg(val);
+    auto tmp_fr = AllocaTmpReg();
     auto res = AllocaReg(instr);
+    output.push_back("ftint.w.s " + reg->print() + ", " + reg->print());
     output.push_back("movfr2gr.s " + res->print() + ", " + reg->print());
-    output.push_back("ffint.w.s " + res->print() + ", " + res->print());
     SetReg(res, instr);
 }
 void CodeGen::sitofp_assembly(Instruction* instr){
@@ -664,11 +682,14 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 }
             }
             else{//浮点型常量
+                auto tmp_r = AllocaTmpReg();
                 auto reg = AllocaReg(v);
                 float f_val = dynamic_cast<ConstantFP*>(v)->get_value();
                 int i_val = *(int*)&f_val;
-                output.push_back("lu12i.w " + reg->print() + ", " + std::to_string(i_val-i_val%4096) + ">>12");
-                if(i_val%4096)output.push_back("ori " + reg->print() + ", " + reg->print() + ", " + std::to_string(i_val%4096));
+                output.push_back("lu12i.w " + tmp_r->print() + ", " + std::to_string(i_val-i_val%4096) + ">>12");
+                if(i_val%4096)output.push_back("ori " + tmp_r->print() + ", " + tmp_r->print() + ", " + std::to_string(i_val%4096));
+                output.push_back("movgr2fr.w " + reg->print() + ", " + tmp_r->print());
+                tmp_r->locked = false;
                 SetReg(reg, v);
                 return reg;
             }
@@ -687,12 +708,14 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 assert(off!=-1);
                 if(v->get_type()->is_float_type())
                     output.push_back("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
+                else if(v->get_type()->is_pointer_type())
+                    output.push_back("ld.d " + reg->print() + ", $fp, " + std::to_string(off));
                 else
                     output.push_back("ld.w " + reg->print() + ", $fp, " + std::to_string(off));
             }
             else {//局部指针值
                 int off = LocalOff[v];
-                output.push_back("addi " + reg->print() + ", $fp, " + std::to_string(off));
+                output.push_back("addi.d " + reg->print() + ", $fp, " + std::to_string(off));
             }
             SetReg(reg, v);
             return reg;
@@ -705,13 +728,27 @@ Reg* CodeGen::AllocaReg(Value* v){
     if(v->get_type()->is_float_type())return LinearScanFR();
     else return LinearScanR();
 }
+Reg* CodeGen::AllocaTmpReg(){
+    for(int i=4;i<=20;i++)
+        if(!is_active(R[i].value, point)&&R[i].locked!=true){
+            R[i].locked = true;
+            return &R[i];
+        }
+} 
+Reg* CodeGen::AllocaTmpFReg(){
+    for(int i=0;i<=23;i++)
+        if(!is_active(FR[i].value, point)&&FR[i].locked!=true){
+            FR[i].locked = true;
+            return &FR[i];
+        }
+}
 Reg* LinearScanR(){
     for(int i=4;i<=20;i++)
-        if(!is_active(R[i].value, point))return &R[i];
+        if(!is_active(R[i].value, point)&&R[i].locked!=true)return &R[i];
 }
 Reg* LinearScanFR(){
     for(int i=0;i<=23;i++)
-        if(!is_active(FR[i].value, point))return &FR[i];
+        if(!is_active(FR[i].value, point)&&FR[i].locked!=true)return &FR[i];
 }
 Reg* RandomReg(){
     next_reg = (next_reg+1)%9;
@@ -722,6 +759,7 @@ Reg* RandomFReg(){
     return &FR[next_freg+8];
 }
 void SetReg(Reg* r, Value* val){
+    if (ValPos.find(val)!=ValPos.end()&&ValPos[val].get_reg()!=nullptr)ValPos[val].get_reg()->value = nullptr;
     if (r->value!=nullptr) ValPos[r->value].set_reg(nullptr);
     r->value = val;
     if (val) ValPos[val].set_reg(r);

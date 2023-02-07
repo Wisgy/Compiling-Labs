@@ -15,6 +15,7 @@ class Reg {
 
     int id;
     Value* value = NULL;
+    bool locked = false;
     virtual string print() {
         if (id == 0)
             return "$zero";
@@ -91,6 +92,8 @@ class CodeGen {
     void fptosi_assembly(Instruction* instr);
     void sitofp_assembly(Instruction* instr);
     Reg* AllocaReg(Value* v);
+    Reg* AllocaTmpReg();
+    Reg* AllocaTmpFReg();
     Reg* GetReg(Value* value);
 
   private:
