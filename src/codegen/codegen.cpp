@@ -80,7 +80,7 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         in[cur_inst]=out[cur_inst];
         in[cur_inst].insert(cur_inst);
         in[cur_inst].erase(suc_inst);
-        for(auto op : cur_inst->get_operands())if(dynamic_cast<Instruction*>(op)||dynamic_cast<Argument*>(op)||dynamic_cast<Constant*>(op))in[cur_inst].insert(op);
+        for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)))in[cur_inst].insert(op);
         suc_inst = cur_inst;
         for(;iter!=bb.get_instructions().begin();iter--){
             cur_inst = &(*iter);
@@ -88,7 +88,7 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
             in[cur_inst]=out[cur_inst];
             in[cur_inst].insert(cur_inst);
             in[cur_inst].erase(suc_inst);
-            for(auto op : cur_inst->get_operands())if(dynamic_cast<Instruction*>(op)||dynamic_cast<Argument*>(op)||dynamic_cast<Constant*>(op))in[cur_inst].insert(op);
+            for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)))in[cur_inst].insert(op);
             suc_inst = cur_inst;
         }
         cur_inst = &(*iter);
@@ -96,7 +96,7 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         in[cur_inst] = out[cur_inst];
         in[cur_inst].insert(cur_inst);
         in[cur_inst].erase(suc_inst);
-        for(auto op : cur_inst->get_operands())if(dynamic_cast<Instruction*>(op)||dynamic_cast<Argument*>(op)||dynamic_cast<Constant*>(op))in[cur_inst].insert(op);
+        for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)))in[cur_inst].insert(op);
     }
     // for(auto &bb : func->get_basic_blocks()){
     //     std::cout<<bb.get_name()<<std::endl;
@@ -224,6 +224,8 @@ void CodeGen::visit(BasicBlock* bb){
                 assert(true);
         }
     }
+    for(int i=4;i<=20;i++)SetReg(&R[i], nullptr);
+    for(int i=0;i<=23;i++)SetReg(&FR[i], nullptr);
 }
 void CodeGen::bb_end_store(BasicBlock* bb){
     // phi
@@ -253,7 +255,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
         }
     }
     // integer register
-    for(int i=4;i<=20;i++)
+    for(int i=4;i<=20;i++){
         if(is_active(R[i].value, bb)){
             int off;
             if(ValPos[R[i].value].get_off()!=-1)
@@ -266,9 +268,10 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             else output.push_back("st.d " + R[i].print() + ", $fp, " + std::to_string(off));
             ValPos[R[i].value].set_off(off);
         }
-        else SetReg(&R[i], nullptr);
+       SetReg(&R[i], nullptr);
+    }
     // float register
-    for(int i=0;i<=23;i++)
+    for(int i=0;i<=23;i++){
         if(is_active(FR[i].value, bb)){
             int off;
             if(ValPos[FR[i].value].get_off()!=-1)
@@ -280,7 +283,8 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             output.push_back("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
             ValPos[FR[i].value].set_off(off);
         }
-        else SetReg(&FR[i], nullptr);
+        SetReg(&FR[i], nullptr);
+    }
 }
 void CodeGen::ret_assembly(Instruction* instr){
     bool is_int = cur_func->get_return_type()->is_integer_type();
@@ -355,9 +359,7 @@ void CodeGen::load_assembly(Instruction* instr){
     Value* pt = instr->get_operand(0);
     Reg* reg;
     if(dynamic_cast<GlobalVariable*>(pt)){
-        auto addr = LinearScanR();
-        output.push_back("la.local " + addr->print() + ", " + pt->get_name());
-        SetReg(addr, nullptr);
+        auto addr = GetReg(pt);
         reg = AllocaReg(instr);
         if(instr->get_type()->is_integer_type())
             output.push_back("ld.w " + reg->print() + ", " + addr->print() + ", 0");
@@ -385,9 +387,7 @@ void CodeGen::store_assembly(Instruction* instr){
     auto reg = GetReg(data);
     auto type = pt->get_type()->get_pointer_element_type();
     if(dynamic_cast<GlobalVariable*>(pt)){
-        auto addr = RandomReg();
-        output.push_back("la.local " + addr->print() + ", " + pt->get_name());
-        SetReg(addr, nullptr);
+        auto addr = GetReg(pt);
         if(type->is_integer_type())
             output.push_back("st.w " + reg->print() + ", " + addr->print() + ", 0");
         else if(type->is_float_type())
@@ -562,10 +562,11 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
     Reg* addr;
     if(dynamic_cast<GlobalVariable*>(pt)){
         if(dynamic_cast<ConstantInt*>(instr->get_operand(2))){
+            addr = AllocaReg(instr);
             int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(2))->get_value();
             int elem_size = type->get_array_element_type()->get_size();
             output.push_back("la.local " + addr->print() + ", " + pt->get_name());
-            output.push_back("addi.d " + addr->print() + ", " + addr->print() + ", " + std::to_string(elem_off*elem_size));
+            if(elem_off*elem_size)output.push_back("addi.d " + addr->print() + ", " + addr->print() + ", " + std::to_string(elem_off*elem_size));
         }
         else {
             auto index_reg = GetReg(instr->get_operand(2));
@@ -573,8 +574,10 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
             SetReg(index_reg, nullptr);
             int elem_size = type->get_array_element_type()->get_size();
             output.push_back("la.local " + addr->print() + ", " + pt->get_name());
-            output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
-            output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
+            if(elem_size){
+                output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
+                output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
+            }
         }
         SetReg(addr, instr);
     }
