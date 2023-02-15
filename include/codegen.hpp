@@ -106,9 +106,7 @@ class AddrDesc{
         AddrDesc() = default;
         AddrDesc(Value* value) : val_(value) {}
         AddrDesc(Value* value, Reg* reg) : val_(value) {reg_ = reg;}
-        // Reg* get_reg() { return reg_.size()?*reg_.begin():NULL;}
         Reg* get_reg() const { return reg_; }
-        // Value* get_pos() { return pos_.size()?*pos_.begin():NULL;}
         int get_off() const { return off_; }
         void set_reg(Reg* reg) {reg_ = reg;}
         void set_off(int offset) {off_ = offset;}

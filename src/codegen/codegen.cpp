@@ -98,6 +98,17 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         in[cur_inst].erase(suc_inst);
         for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)))in[cur_inst].insert(op);
     }
+    // delete the active phi var at the exit of bb blocks
+    // for(auto &bb : func->get_basic_blocks()){
+    //     for(auto &suc_bb : bb.get_succ_basic_blocks()){
+    //         for(auto &inst : suc_bb->get_instructions()){
+    //             if(inst.is_phi())
+    //                 for(auto &op : inst.get_operands())
+    //                     OUT[&bb].erase(op);
+    //             else break;
+    //         }
+    //     }
+    // }
     // for(auto &bb : func->get_basic_blocks()){
     //     std::cout<<bb.get_name()<<std::endl;
     //     for(auto &ins : bb.get_instructions()){
