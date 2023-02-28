@@ -12,7 +12,8 @@
 // $r23 - $r31  $s0 - $s8   static
 int next_reg=0;
 int next_freg=0;
-std::map<Value*, AddrDesc> ValPos;
+// std::map<Value*, AddrDesc> ValPos;
+std::map<Function*, std::map<BasicBlock*, std::map<Value*, AddrDesc>>> ValPos;
 std::map<Value*, int> LocalOff;
 Function *cur_func = nullptr;
 BasicBlock *cur_bb = nullptr;
@@ -132,6 +133,24 @@ bool is_active(Value* inst, Value* point){// 当前程序点活跃
 bool is_active_out(Value* inst, Value* point){// 当前程序点出口活跃
     return out[point].find(inst)!=out[point].end();
 }
+inline int GetOff(Value* inst, BasicBlock* bb=cur_bb, Function* func=cur_func){// acquire the memory offset of inst
+    return ValPos[func][bb][inst].get_off();
+}
+inline Reg* GetCurReg(Value* inst, BasicBlock* bb=cur_bb, Function* func=cur_func){// acquire the current reg of inst
+    return ValPos[func][bb][inst].get_reg();
+}
+inline void SetOff(Value* inst, int off, BasicBlock* bb=cur_bb, Function* func=cur_func){// set the memory offset of inst
+    ValPos[func][bb][inst].set_off(off);
+}
+inline void SetReg(Value* inst, Reg* reg, BasicBlock* bb=cur_bb, Function* func=cur_func){// update the position of inst's reg
+    ValPos[func][bb][inst].set_reg(reg);
+}
+inline bool is_in_ValPos(Value* inst, BasicBlock* bb=cur_bb, Function* func=cur_func){// determine whether inst has its own address descriptor
+    return ValPos[func][cur_bb].find(inst)!=ValPos[func][cur_bb].end();
+}
+inline bool is_stored(Value* inst, BasicBlock* bb=cur_bb, Function* func=cur_func){// determine whether inst has been allocated memory space for 
+    return ValPos[func][cur_bb].find(inst)!=ValPos[func][cur_bb].end()&&ValPos[func][cur_bb][inst].get_off()!=-1;
+}
 void CodeGen::run() {
     output.push_back(".text");
     // global_value
@@ -142,7 +161,7 @@ void CodeGen::run() {
     for (auto &func : m->get_functions())
         if (not func.is_declaration()) {
             LocalOff.clear();
-            ValPos.clear();
+            ValPos[func].clear();
             ActiveVars(&func);
             cur_func = &func;
             offset = -16;
@@ -152,23 +171,23 @@ void CodeGen::run() {
             i=f=off=0;
             for(auto& arg : func.get_args()){
                 if(arg->get_type()->is_integer_type()){
-                    if(i<8)SetReg(&R[(i++)+4], arg);
+                    if(i<8)UpdateReg(&R[(i++)+4], arg);
                     else {
-                        ValPos[arg].set_off(off);
+                        SetOff(arg, cur_func->get_entry_block(), off);
                         off += arg->get_type()->get_size();
                     }
                 }
                 else if(arg->get_type()->is_float_type()){
-                    if(f<8)SetReg(&FR[f++], arg);
+                    if(f<8)UpdateReg(&FR[f++], arg);
                     else {
-                        ValPos[arg].set_off(off);
+                        SetOff(arg, cur_func->get_entry_block(), off);
                         off += arg->get_type()->get_size();
                     }
                 }
                 else if(arg->get_type()->is_pointer_type()){
-                    if(i<8)SetReg(&R[(i++)+4], arg);
+                    if(i<8)UpdateReg(&R[(i++)+4], arg);
                     else {
-                        ValPos[arg].set_off(off);
+                        SetOff(arg, cur_func->get_entry_block(), off);
                         off += arg->get_type()->get_size();
                     }
                 }
@@ -235,8 +254,8 @@ void CodeGen::visit(BasicBlock* bb){
                 assert(true);
         }
     }
-    for(int i=4;i<=20;i++)SetReg(&R[i], nullptr);
-    for(int i=0;i<=23;i++)SetReg(&FR[i], nullptr);
+    for(int i=4;i<=20;i++)UpdateReg(&R[i], nullptr);
+    for(int i=0;i<=23;i++)UpdateReg(&FR[i], nullptr);
 }
 void CodeGen::bb_end_store(BasicBlock* bb){
     // phi
@@ -244,7 +263,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
         for(auto &inst : suc_bb->get_instructions()){
             if(inst.is_phi()){//op3 = phi(op2, op1)则令op12在出口处不活跃对其单独处理，将其值存储在op3的内存位置
                 point = &inst;
-                if(ValPos.find(&inst)==ValPos.end()){
+                if(is_in_ValPos(&inst)){
                     offset -= inst.get_type()->get_size();
                     ValPos[&inst].set_off(offset);
                 }
@@ -279,7 +298,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             else output.push_back("st.d " + R[i].print() + ", $fp, " + std::to_string(off));
             ValPos[R[i].value].set_off(off);
         }
-       SetReg(&R[i], nullptr);
+       UpdateReg(&R[i], nullptr);
     }
     // float register
     for(int i=0;i<=23;i++){
@@ -294,7 +313,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             output.push_back("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
             ValPos[FR[i].value].set_off(off);
         }
-        SetReg(&FR[i], nullptr);
+        UpdateReg(&FR[i], nullptr);
     }
 }
 void CodeGen::ret_assembly(Instruction* instr){
@@ -358,7 +377,7 @@ void CodeGen::binary_assembly(Instruction* instr){
     }
     auto res = AllocaReg(instr);
     output.push_back(assem_inst + " " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
-    SetReg(res, instr);
+    UpdateReg(res, instr);
 }
 void CodeGen::alloca_assembly(Instruction* instr){
     //根据申请空间的大小计算偏移值
@@ -390,7 +409,7 @@ void CodeGen::load_assembly(Instruction* instr){
         reg = AllocaReg(instr);
         output.push_back(inst_head + reg->print() + inst_tail);
     }
-    SetReg(reg, instr);
+    UpdateReg(reg, instr);
 }
 void CodeGen::store_assembly(Instruction* instr){
     Value* data = instr->get_operand(0);
@@ -469,7 +488,7 @@ void CodeGen::cmp_assembly(Instruction* instr, Instruction* refer){
                               output.push_back("xori " + res->print() + ", " + res->print() + ", 1");
                               break;
         }
-        SetReg(res, instr);
+        UpdateReg(res, instr);
     }
     else assert(false);
 }
@@ -500,7 +519,7 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
         output.push_back("bceqz $fcc0, " + br);
         output.push_back("addi.w " + reg->print() + ", $zero" + ", 0");
         output.push_back(br + ":");
-        SetReg(reg, instr);
+        UpdateReg(reg, instr);
     }
     else assert(false);
 }
@@ -514,7 +533,7 @@ void CodeGen::phi_assembly(Instruction* instr){
     else if(instr->get_type()->is_float_type())
         output.push_back("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
     else assert(false);
-    SetReg(reg, instr);
+    UpdateReg(reg, instr);
 }
 void CodeGen::call_assembly(Instruction* instr){
     // first store the value of temporary registers and arguments registers
@@ -541,7 +560,7 @@ void CodeGen::call_assembly(Instruction* instr){
                 auto s_reg = GetReg(op);
                 if(&FR[j-1]!=s_reg)
                     output.push_back("fmov.s " + FR[j-1].print() + ", " + s_reg->print());
-                SetReg(&FR[j-1], op);
+                UpdateReg(&FR[j-1], op);
             }
             else{//  堆栈传参
                 output.push_back("fst.s " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
@@ -551,7 +570,7 @@ void CodeGen::call_assembly(Instruction* instr){
                 auto s_reg = GetReg(op);
                 if(&R[i+3]!=s_reg)
                     output.push_back("or " + R[i+3].print() + ", " + s_reg->print() + ", $zero");
-                SetReg(&R[i+3], op);
+                UpdateReg(&R[i+3], op);
             }
         else{   //  堆栈传参
             output.push_back("st.w " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
@@ -562,10 +581,10 @@ void CodeGen::call_assembly(Instruction* instr){
     // third "bl " function_name
     output.push_back("bl " + instr->get_operand(0)->get_name());
     // fourth mark the value of registers as null
-    for(int i=4;i<=20;i++)SetReg(&R[i], nullptr);
-    for(int i=0;i<=23;i++)SetReg(&FR[i], nullptr);
-    if(instr->get_type()->is_integer_type())SetReg(&R[4], instr);
-    else if(instr->get_type()->is_float_type())SetReg(&FR[0], instr);
+    for(int i=4;i<=20;i++)UpdateReg(&R[i], nullptr);
+    for(int i=0;i<=23;i++)UpdateReg(&FR[i], nullptr);
+    if(instr->get_type()->is_integer_type())UpdateReg(&R[4], instr);
+    else if(instr->get_type()->is_float_type())UpdateReg(&FR[0], instr);
 }
 void CodeGen::getelementptr_assembly(Instruction* instr){
     Value* pt = instr->get_operand(0);
@@ -582,7 +601,7 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
         else {
             auto index_reg = GetReg(instr->get_operand(2));
             addr = AllocaReg(instr);
-            SetReg(index_reg, nullptr);
+            UpdateReg(index_reg, nullptr);
             int elem_size = type->get_array_element_type()->get_size();
             output.push_back("la.local " + addr->print() + ", " + pt->get_name());
             if(elem_size){
@@ -590,7 +609,7 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
                 output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
             }
         }
-        SetReg(addr, instr);
+        UpdateReg(addr, instr);
     }
     else{
         assert(LocalOff.find(pt) != LocalOff.end() || ValPos.find(pt) != ValPos.end());
@@ -608,8 +627,8 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
                 output.push_back("slli.d " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
                 output.push_back("addi.d " + addr->print() + ", $fp, " + std::to_string(LocalOff[pt]));
                 output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
-                SetReg(index_reg, nullptr);
-                SetReg(addr, instr);
+                UpdateReg(index_reg, nullptr);
+                UpdateReg(addr, instr);
             }
         }
         else{
@@ -623,12 +642,12 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
             else{
                 auto index_reg = GetReg(instr->get_operand(1));
                 addr = AllocaReg(instr);
-                SetReg(index_reg, nullptr);
+                UpdateReg(index_reg, nullptr);
                 int elem_size = type->get_size();
                 output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
                 output.push_back("add.d " + addr->print() + ", " + reg->print() + ", " + index_reg->print());
             }
-            SetReg(addr, instr);
+            UpdateReg(addr, instr);
         }
     }
 }
@@ -647,7 +666,7 @@ void CodeGen::zext_assembly(Instruction* instr){
     auto reg = GetReg(val);
     auto res = AllocaReg(instr);
     output.push_back("or " + res->print() + ", " + reg->print() + ", $zero");
-    SetReg(res, instr);
+    UpdateReg(res, instr);
 }
 void CodeGen::fptosi_assembly(Instruction* instr){
     auto val = instr->get_operand(0);
@@ -656,7 +675,7 @@ void CodeGen::fptosi_assembly(Instruction* instr){
     auto res = AllocaReg(instr);
     output.push_back("ftint.w.s " + reg->print() + ", " + reg->print());
     output.push_back("movfr2gr.s " + res->print() + ", " + reg->print());
-    SetReg(res, instr);
+    UpdateReg(res, instr);
 }
 void CodeGen::sitofp_assembly(Instruction* instr){
     auto val = instr->get_operand(0);
@@ -664,7 +683,7 @@ void CodeGen::sitofp_assembly(Instruction* instr){
     auto res = AllocaReg(instr);
     output.push_back("movgr2fr.w " + res->print() + ", " + reg->print());
     output.push_back("ffint.s.w " + res->print() + ", " + res->print());
-    SetReg(res, instr);
+    UpdateReg(res, instr);
 }
 Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
     if(ValPos.find(v)!=ValPos.end()&&ValPos[v].get_reg()!=nullptr) {// 如果寄存器存在此变量的值
@@ -678,20 +697,20 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 else if(val>0&&val<=4095){// 可直接加载的小立即数
                     auto reg = AllocaReg(v);
                     output.push_back("ori " + reg->print() + ", $zero, " + std::to_string(val));
-                    SetReg(reg, v);
+                    UpdateReg(reg, v);
                     return reg;
                 }
                 else if(val>=-2048&&val<0){
                     auto reg = AllocaReg(v);
                     output.push_back("addi.w " + reg->print() + ", $zero, " + std::to_string(val));
-                    SetReg(reg, v);
+                    UpdateReg(reg, v);
                     return reg;
                 }
                 else{ // 不可直接加载的大数
                     auto reg = AllocaReg(v);
-                    output.push_back("lu12i.w " + reg->print() + ", " + std::to_string(val-val%4096) + ">>12");
+                    output.push_back("lu12i.w " + reg->print() + ", " + std::to_string(val>>12));
                     if(val%4096)output.push_back("ori " + reg->print() + ", " + reg->print() + ", " + std::to_string(val%4096));
-                    SetReg(reg, v);
+                    UpdateReg(reg, v);
                     return reg;
                 }
             }
@@ -700,18 +719,18 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 auto reg = AllocaReg(v);
                 float f_val = dynamic_cast<ConstantFP*>(v)->get_value();
                 int i_val = *(int*)&f_val;
-                output.push_back("lu12i.w " + tmp_r->print() + ", " + std::to_string(i_val-i_val%4096) + ">>12");
+                output.push_back("lu12i.w " + tmp_r->print() + ", " + std::to_string(i_val>>12));
                 if(i_val%4096)output.push_back("ori " + tmp_r->print() + ", " + tmp_r->print() + ", " + std::to_string(i_val%4096));
                 output.push_back("movgr2fr.w " + reg->print() + ", " + tmp_r->print());
                 tmp_r->locked = false;
-                SetReg(reg, v);
+                UpdateReg(reg, v);
                 return reg;
             }
         }
         else if(dynamic_cast<GlobalVariable*>(v)) {// 全局变量
             auto reg = AllocaReg(v);
             output.push_back("la.local " + reg->print() + "," + v->get_name());
-            SetReg(reg, v);
+            UpdateReg(reg, v);
             return reg;
         }
         else { //局部变量
@@ -731,7 +750,7 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 int off = LocalOff[v];
                 output.push_back("addi.d " + reg->print() + ", $fp, " + std::to_string(off));
             }
-            SetReg(reg, v);
+            UpdateReg(reg, v);
             return reg;
         }
     }
@@ -772,7 +791,7 @@ Reg* RandomFReg(){
     next_freg = (next_freg+1)%16;
     return &FR[next_freg+8];
 }
-void SetReg(Reg* r, Value* val){
+void UpdateReg(Reg* r, Value* val){
     if (ValPos.find(val)!=ValPos.end()&&ValPos[val].get_reg()!=nullptr)ValPos[val].get_reg()->value = nullptr;
     if (r->value!=nullptr) ValPos[r->value].set_reg(nullptr);
     r->value = val;

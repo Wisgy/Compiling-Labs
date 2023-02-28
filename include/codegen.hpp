@@ -120,7 +120,7 @@ Reg* LinearScanR();
 Reg* LinearScanFR();
 Reg* RandomReg();
 Reg* RandomFReg();
-void SetReg(Reg*, Value* val);
+void UpdateReg(Reg*, Value* val);
 
 
 #endif
