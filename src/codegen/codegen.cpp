@@ -312,7 +312,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             if(inst.is_phi()){//op3 = phi(op2, op1)则令op12在出口处不活跃对其单独处理，将其值存储在op3的内存位置
                 point = &inst;
                 if(!is_stored(&inst)){
-                    offset -= inst.get_type()->get_size();
+                    offset -= inst.get_type()->get_size()+offset%inst.get_type()->get_size();
                     SetOff(&inst, offset);
                 }
                 int off = CurOff(&inst);
@@ -338,7 +338,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             if(is_stored(R[i].value))
                 off = CurOff(R[i].value);
             else{
-                offset -= R[i].value->get_type()->get_size();
+                offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
                 off = offset;
             } 
             if(R[i].value->get_type()->is_integer_type())output.push_back("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
@@ -354,7 +354,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             if(is_stored(FR[i].value))
                 off = CurOff(FR[i].value);
             else{
-                offset -= FR[i].value->get_type()->get_size();
+                offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
                 off = offset;
             } 
             output.push_back("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
@@ -653,14 +653,14 @@ void CodeGen::call_assembly(Instruction* instr){
     // first store the value of temporary registers and arguments registers
     for(int i=4;i<=20;i++){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
-            offset -= R[i].value->get_type()->get_size();
+            offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
             SetOff(R[i].value, offset);
             output.push_back("st.w " + R[i].print() + ", $fp, " + std::to_string(offset));
         }
     }
     for(int i=0;i<=23;i++){
         if(is_active_out(FR[i].value, instr)&&!is_stored(FR[i].value)){
-            offset -= FR[i].value->get_type()->get_size();
+            offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
             SetOff(FR[i].value, offset);
             output.push_back("fst.s " + FR[i].print() + ", $fp, " + std::to_string(offset));
         }
