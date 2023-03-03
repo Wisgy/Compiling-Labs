@@ -210,7 +210,7 @@ void GVN::detectEquivalences() {
         // see the pseudo code in documentation
         for (auto &bb1 : func_->get_basic_blocks()) { // you might need to visit the blocks in depth-first order
             auto bb=&bb1;
-            std::cout<<(bb->get_name())<<std::endl;
+            // std::cout<<(bb->get_name())<<std::endl;
             // get PIN of bb by predecessor(s)
             auto pre_bb = bb->get_pre_basic_blocks();
             // iterate through all instructions in the block
