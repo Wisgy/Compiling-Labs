@@ -8,6 +8,8 @@ using std::string;
 using std::vector;
 using std::set;
 
+
+// register
 class Reg {
   public:
     Reg(int index) : id(index) {}
@@ -15,7 +17,6 @@ class Reg {
 
     int id;
     Value* value = NULL;
-    bool locked = false;
     virtual string print() {
         if (id == 0)
             return "$zero";
@@ -33,9 +34,6 @@ class Reg {
             return "$fp";
         assert(false);
     }
-    bool operator<(Reg& other){
-        return this->id < other.id;
-    }
 };
 class FReg : public Reg{
     public:
@@ -46,9 +44,6 @@ class FReg : public Reg{
             if (8 <= id and id <= 23)
                 return "$ft" + std::to_string(id-8);
             assert(false);
-        }
-        bool operator<(FReg& other){
-            return this->id < other.id;
         }
 };
 
@@ -72,14 +67,6 @@ class CodeGen {
     void ret_assembly(Instruction* instr);
     void br_assembly(Instruction* instr);
     void binary_assembly(Instruction* instr);
-    // void add_assembly(Instruction* instr);
-    // void sub_assembly(Instruction* instr);
-    // void mul_assembly(Instruction* instr);
-    // void sdiv_assembly(Instruction* instr);
-    // void fadd_assembly(Instruction* instr);
-    // void fsub_assembly(Instruction* instr);
-    // void fmul_assembly(Instruction* instr);
-    // void fdiv_assembly(Instruction* instr);
     void alloca_assembly(Instruction* instr);
     void load_assembly(Instruction* instr);
     void store_assembly(Instruction* instr);
@@ -95,6 +82,9 @@ class CodeGen {
     Reg* AllocaTmpReg();
     Reg* AllocaTmpFReg();
     Reg* GetReg(Value* value);
+
+    void CFopt(Function* func);
+    void gen_code(string assem);
 
   private:
     Module *m;
@@ -121,6 +111,8 @@ Reg* LinearScanFR();
 Reg* RandomReg();
 Reg* RandomFReg();
 void UpdateReg(Reg*, Value* val);
+
+
 
 
 #endif

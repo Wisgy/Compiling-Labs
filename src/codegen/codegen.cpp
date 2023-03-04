@@ -12,7 +12,12 @@
 // $r23 - $r31  $s0 - $s8   static
 Reg R[32]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};// integer register
 FReg FR[24]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};// float register
-
+//Program point
+Function *cur_func;
+BasicBlock *cur_bb;
+Instruction *point;
+// register allocation
+std::set<Reg*> locked_regs;
 int next_reg=0;
 int next_freg=0;
 //Address Descriptor
@@ -53,10 +58,6 @@ namespace const_opt{
     }
 }
 using namespace const_opt;
-//Program point
-Function *cur_func = nullptr;
-BasicBlock *cur_bb = nullptr;
-Instruction *point = nullptr;
 //Memory Calculate
 int offset;
 int max_arg_size;
@@ -120,7 +121,7 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         in[cur_inst]=out[cur_inst];
         in[cur_inst].insert(cur_inst);
         in[cur_inst].erase(suc_inst);
-        for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)))in[cur_inst].insert(op);
+        for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)||dynamic_cast<Constant*>(op)))in[cur_inst].insert(op);
         suc_inst = cur_inst;
         for(;iter!=bb.get_instructions().begin();iter--){
             cur_inst = &(*iter);
@@ -128,7 +129,7 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
             in[cur_inst]=out[cur_inst];
             in[cur_inst].insert(cur_inst);
             in[cur_inst].erase(suc_inst);
-            for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)))in[cur_inst].insert(op);
+            for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)||dynamic_cast<Constant*>(op)))in[cur_inst].insert(op);
             suc_inst = cur_inst;
         }
         cur_inst = &(*iter);
@@ -136,7 +137,7 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         in[cur_inst] = out[cur_inst];
         in[cur_inst].insert(cur_inst);
         in[cur_inst].erase(suc_inst);
-        for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)))in[cur_inst].insert(op);
+        for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)||dynamic_cast<Constant*>(op)))in[cur_inst].insert(op);
     }
     // delete the active phi var at the exit of bb blocks
     // for(auto &bb : func->get_basic_blocks()){
@@ -198,6 +199,52 @@ inline bool is_used(Value* inst){
 }
 }
 using namespace WrapFunc;
+// Short Function Optimization
+
+// Control Flow Optimization
+class CFG{
+    public:
+        CFG() = default;
+        void push_back(string code, BasicBlock* bb) { bb2code[bb].push_back(code); }
+        BasicBlock* get_jump_bb(BasicBlock* bb) { return jump_bb.find(bb)!=jump_bb.end()?jump_bb[bb]:nullptr;}
+        BasicBlock* get_cj_bb(BasicBlock* bb) { return cj_bb.find(bb)!=cj_bb.end()?cj_bb[bb]:nullptr;}
+        void clear() {bb2code.clear();cj_bb.clear();jump_bb.clear();}
+        void set_jump_bb(BasicBlock* next_bb, BasicBlock* bb = cur_bb){
+            assert(next_bb&&jump_bb.find(bb)==jump_bb.end());
+            jump_bb[bb] = next_bb;
+        }
+        void set_cj_bb(BasicBlock* next_bb, BasicBlock* bb = cur_bb){
+            assert(next_bb&&cj_bb.find(bb)==cj_bb.end());
+            cj_bb[bb] = next_bb;
+        }
+        void pop_back(BasicBlock* bb) { bb2code[bb].pop_back(); }
+        vector<string>& operator[] (BasicBlock* bb) { return bb2code[bb]; }
+    private:
+        std::map<BasicBlock*, vector<string>> bb2code;
+        std::map<BasicBlock*, BasicBlock*> cj_bb;
+        std::map<BasicBlock*, BasicBlock*> jump_bb;
+};
+CFG cfg;
+void CodeGen::CFopt(Function* func){
+    std::map<BasicBlock*, bool> visited;
+    vector<BasicBlock*> stack;
+    stack.push_back(func->get_entry_block());
+    while(stack.size()){// insert codes of the basicblock in a depth-first manner
+        auto bb = stack.back();
+        stack.pop_back();
+        if(visited[bb])continue;
+        visited[bb]=true;
+        if(cfg.get_cj_bb(bb))stack.push_back(cfg.get_cj_bb(bb));
+        if(cfg.get_jump_bb(bb)){
+            cfg.pop_back(bb);// remove the redundant br instruction
+            stack.push_back(cfg.get_jump_bb(bb));
+        }
+        output.insert(output.end(), cfg[bb].begin(),cfg[bb].end());
+    }
+}
+inline void CodeGen::gen_code(string assem){
+    cfg.push_back(assem, cur_bb);
+}
 void CodeGen::run() {
     output.push_back(".text");
     // global_value
@@ -207,8 +254,10 @@ void CodeGen::run() {
     }
     for (auto &func : m->get_functions())
         if (not func.is_declaration()) {
+            // initialize
             OffsetDesc.clear();
             RegDesc.clear();
+            cfg.clear();
             ActiveVars(&func);
             cur_func = &func;
             offset = -16;
@@ -254,6 +303,8 @@ void CodeGen::run() {
             for(auto& bb : func.get_basic_blocks()){
                 visit(&bb);
             }
+            // Control Flow opt
+            CFopt(cur_func);
             // calculate the memory used by the function
             offset -= max_arg_size;
             int bytes = -offset + 16 + offset%16;
@@ -273,9 +324,10 @@ void CodeGen::run() {
 
 void CodeGen::visit(BasicBlock* bb){
     cur_bb = bb;
-    output.push_back("." + cur_func->get_name() + "_" + bb->get_name() + ":");
+    gen_code("." + cur_func->get_name() + "_" + bb->get_name() + ":");
     for(auto& instr : bb->get_instructions()){
         point = &instr;
+        locked_regs.clear();
         switch (instr.get_instr_type()){
             case Instruction::ret: ret_assembly(&instr); break;
             case Instruction::br: br_assembly(&instr); break;
@@ -326,7 +378,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                 else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
                     reg = GetReg(inst.get_operand(2));
                 else assert(false);
-                output.push_back(head + reg->print() + ", $fp, " + std::to_string(off));
+                gen_code(head + reg->print() + ", $fp, " + std::to_string(off));
             }
             else break;
         }
@@ -341,8 +393,8 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                 offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
                 off = offset;
             } 
-            if(R[i].value->get_type()->is_integer_type())output.push_back("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
-            else output.push_back("st.d " + R[i].print() + ", $fp, " + std::to_string(off));
+            if(R[i].value->get_type()->is_integer_type())gen_code("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
+            else gen_code("st.d " + R[i].print() + ", $fp, " + std::to_string(off));
             SetOff(R[i].value, off);
         }
        UpdateReg(&R[i], nullptr);
@@ -357,7 +409,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                 offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
                 off = offset;
             } 
-            output.push_back("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
+            gen_code("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
             SetOff(FR[i].value, off);
         }
         UpdateReg(&FR[i], nullptr);
@@ -369,9 +421,9 @@ void CodeGen::ret_assembly(Instruction* instr){
     if(is_int||is_float) {
         Value* v = instr->get_operand(0);
         Reg* Rv = GetReg(v);
-        if(Rv!=&R[4]&&Rv!=&FR[0])output.push_back((is_int?"or $a0, " + Rv->print() + ", $r0":"fmov.s $fa0, " + Rv->print()));
+        if(Rv!=&R[4]&&Rv!=&FR[0])gen_code((is_int?"or $a0, " + Rv->print() + ", $r0":"fmov.s $fa0, " + Rv->print()));
     }
-    output.push_back("b ." + cur_func->get_name() +"_return");
+    gen_code("b ." + cur_func->get_name() +"_return");
 }
 void CodeGen::br_assembly(Instruction* instr){
     if(dynamic_cast<BranchInst*>(instr)->is_cond_br()){
@@ -379,8 +431,10 @@ void CodeGen::br_assembly(Instruction* instr){
             int flag = dynamic_cast<ConstantInt*>(instr->get_operand(0))->get_value();
             string br1_name = "." + cur_func->get_name() + "_" + instr->get_operand(1)->get_name();
             string br2_name = "." + cur_func->get_name() + "_" + instr->get_operand(2)->get_name();
-            if(flag)output.push_back("b " + br1_name);
-            else output.push_back("b " + br2_name);
+            if(flag)gen_code("b " + br1_name);
+            else gen_code("b " + br2_name);
+            if(flag)cfg.set_jump_bb(dynamic_cast<BasicBlock*>(instr->get_operand(1)));
+            else cfg.set_jump_bb(dynamic_cast<BasicBlock*>(instr->get_operand(2)));
             return;
         }
         auto cond = dynamic_cast<Instruction*>(instr->get_operand(0));
@@ -402,14 +456,17 @@ void CodeGen::br_assembly(Instruction* instr){
             bb_end_store(cur_bb);
             string br1_name = "." + cur_func->get_name() + "_" + instr->get_operand(1)->get_name();
             string br2_name = "." + cur_func->get_name() + "_" + instr->get_operand(2)->get_name();
-            output.push_back("bne " + reg->print() + ", $zero, " + br1_name);
-            output.push_back("b " + br2_name);
+            gen_code("bne " + reg->print() + ", $zero, " + br1_name);
+            gen_code("b " + br2_name);
+            cfg.set_cj_bb(dynamic_cast<BasicBlock*>(instr->get_operand(1)));
+            cfg.set_jump_bb(dynamic_cast<BasicBlock*>(instr->get_operand(2)));
         }
     }
     else {
         bb_end_store(cur_bb);
         string br_name = "." + cur_func->get_name() + "_" + instr->get_operand(0)->get_name();
-        output.push_back("b " + br_name);
+        gen_code("b " + br_name);
+        cfg.set_jump_bb(dynamic_cast<BasicBlock*>(instr->get_operand(0)));
     }
 }
 void CodeGen::binary_assembly(Instruction* instr){
@@ -446,7 +503,7 @@ void CodeGen::binary_assembly(Instruction* instr){
             assert(false);
     }
     auto res = AllocaReg(instr);
-    output.push_back(assem_inst + " " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
+    gen_code(assem_inst + " " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
     UpdateReg(res, instr);
 }
 void CodeGen::alloca_assembly(Instruction* instr){
@@ -462,9 +519,9 @@ void CodeGen::load_assembly(Instruction* instr){
         auto addr = GetReg(pt);
         reg = AllocaReg(instr);
         if(instr->get_type()->is_integer_type())
-            output.push_back("ld.w " + reg->print() + ", " + addr->print() + ", 0");
+            gen_code("ld.w " + reg->print() + ", " + addr->print() + ", 0");
         else if(instr->get_type()->is_float_type())
-            output.push_back("fld.s " + reg->print() + ", " + addr->print() + ", 0");
+            gen_code("fld.s " + reg->print() + ", " + addr->print() + ", 0");
         else assert(false);
     }
     else{
@@ -477,7 +534,7 @@ void CodeGen::load_assembly(Instruction* instr){
         else if(is_used(pt)) {auto addr = GetReg(pt);inst_tail = ", " + addr->print() + ", 0";}
         else assert(false);
         reg = AllocaReg(instr);
-        output.push_back(inst_head + reg->print() + inst_tail);
+        gen_code(inst_head + reg->print() + inst_tail);
     }
     UpdateReg(reg, instr);
 }
@@ -489,9 +546,9 @@ void CodeGen::store_assembly(Instruction* instr){
     if(dynamic_cast<GlobalVariable*>(pt)){
         auto addr = GetReg(pt);
         if(type->is_integer_type())
-            output.push_back("st.w " + reg->print() + ", " + addr->print() + ", 0");
+            gen_code("st.w " + reg->print() + ", " + addr->print() + ", 0");
         else if(type->is_float_type())
-            output.push_back("fst.s " + reg->print() + ", " + addr->print() + ", 0");
+            gen_code("fst.s " + reg->print() + ", " + addr->print() + ", 0");
         else assert(false);
     }
     else{
@@ -503,7 +560,7 @@ void CodeGen::store_assembly(Instruction* instr){
         if(LocalOff.find(pt) != LocalOff.end()) inst_tail = ", $fp, " + std::to_string(LocalOff[pt]);
         else if(is_used(pt)) {auto addr = GetReg(pt);inst_tail = ", " + addr->print() + ", 0";}
         else assert(false);
-        output.push_back(inst_head + reg->print() + inst_tail);
+        gen_code(inst_head + reg->print() + inst_tail);
     }
 }
 void CodeGen::cmp_assembly(Instruction* instr, Instruction* refer){
@@ -522,8 +579,10 @@ void CodeGen::cmp_assembly(Instruction* instr, Instruction* refer){
             bb_end_store(cur_bb);
             string br1_name = "." + cur_func->get_name() + "_" + refer->get_operand(1)->get_name();
             string br2_name = "." + cur_func->get_name() + "_" + refer->get_operand(2)->get_name();
-            if(get_ival(instr)!=0)output.push_back("b " + br1_name);
-            else output.push_back("b " + br2_name);
+            if(get_ival(instr)!=0)gen_code("b " + br1_name);
+            else gen_code("b " + br2_name);
+            if(get_ival(instr)!=0)cfg.set_jump_bb(dynamic_cast<BasicBlock*>(refer->get_operand(1)));
+            else cfg.set_jump_bb(dynamic_cast<BasicBlock*>(refer->get_operand(2)));
         }
         else if(refer->is_zext()){
             set_ival(refer, get_ival(instr));
@@ -538,46 +597,53 @@ void CodeGen::cmp_assembly(Instruction* instr, Instruction* refer){
         string br1_name = "." + cur_func->get_name() + "_" + refer->get_operand(1)->get_name();
         string br2_name = "." + cur_func->get_name() + "_" + refer->get_operand(2)->get_name();
         switch (dynamic_cast<CmpInst *>(instr)->get_cmp_op()) {
-            case CmpInst::EQ: output.push_back("beq " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("b " + br2_name);
+            case CmpInst::EQ: gen_code("beq " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
+                              gen_code("b " + br2_name);
                               break;
-            case CmpInst::NE: output.push_back("bne " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("b " + br2_name);
+            case CmpInst::NE: gen_code("bne " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
+                              gen_code("b " + br2_name);
                               break;
-            case CmpInst::GT: output.push_back("bge " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("b " + br2_name);
+            case CmpInst::GT: gen_code("bge " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
+                              gen_code("b " + br2_name);
                               break;
-            case CmpInst::GE: output.push_back("bge " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("beq " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("b " + br2_name);
+            case CmpInst::GE: gen_code("blt " + l_reg->print() + ", " + r_reg->print() + ", " + br2_name);
+                              gen_code("b " + br1_name);
                               break;
-            case CmpInst::LT: output.push_back("blt " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("b " + br2_name);
+            case CmpInst::LT: gen_code("blt " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
+                              gen_code("b " + br2_name);
                               break;
-            case CmpInst::LE: output.push_back("blt " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("beq " + l_reg->print() + ", " + r_reg->print() + ", " + br1_name);
-                              output.push_back("b " + br2_name);
+            case CmpInst::LE: gen_code("bge " + l_reg->print() + ", " + r_reg->print() + ", " + br2_name);
+                              gen_code("b " + br1_name);
                               break;
+        }
+        switch(dynamic_cast<CmpInst *>(instr)->get_cmp_op()){
+            case CmpInst::GE:
+            case CmpInst::LE:cfg.set_cj_bb(dynamic_cast<BasicBlock*>(refer->get_operand(2)));
+                             cfg.set_jump_bb(dynamic_cast<BasicBlock*>(refer->get_operand(1)));
+                             break;
+            default:cfg.set_cj_bb(dynamic_cast<BasicBlock*>(refer->get_operand(1)));
+                    cfg.set_jump_bb(dynamic_cast<BasicBlock*>(refer->get_operand(2)));
+                    break; 
         }
     }
     else if(refer->is_zext()){
         auto res = AllocaReg(instr);
         switch (dynamic_cast<CmpInst *>(instr)->get_cmp_op()) {
-            case CmpInst::EQ: output.push_back("xor " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
-                              output.push_back("sltui " + res->print() + ", " + res->print() + ", 1");
+            case CmpInst::EQ: gen_code("xor " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
+                              gen_code("sltui " + res->print() + ", " + res->print() + ", 1");
                               break;
-            case CmpInst::NE: output.push_back("xor " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
-                              output.push_back("sltu " + res->print() + ", " + "$zero, " + res->print());
+            case CmpInst::NE: gen_code("xor " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
+                              gen_code("sltu " + res->print() + ", " + "$zero, " + res->print());
                               break;
-            case CmpInst::GT: output.push_back("slt " + res->print() + ", " + r_reg->print() + ", " + l_reg->print());
+            case CmpInst::GT: gen_code("slt " + res->print() + ", " + r_reg->print() + ", " + l_reg->print());
                               break;
-            case CmpInst::GE: output.push_back("slt " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
-                              output.push_back("xori " + res->print() + ", " + res->print() + ", 1");
+            case CmpInst::GE: gen_code("slt " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
+                              gen_code("xori " + res->print() + ", " + res->print() + ", 1");
                               break;
-            case CmpInst::LT: output.push_back("slt " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
+            case CmpInst::LT: gen_code("slt " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
                               break;
-            case CmpInst::LE: output.push_back("slt " + res->print() + ", " + r_reg->print() + ", " + l_reg->print());
-                              output.push_back("xori " + res->print() + ", " + res->print() + ", 1");
+            case CmpInst::LE: gen_code("slt " + res->print() + ", " + r_reg->print() + ", " + l_reg->print());
+                              gen_code("xori " + res->print() + ", " + res->print() + ", 1");
                               break;
         }
         UpdateReg(res, instr);
@@ -600,8 +666,10 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
             bb_end_store(cur_bb);
             string br1_name = "." + cur_func->get_name() + "_" + refer->get_operand(1)->get_name();
             string br2_name = "." + cur_func->get_name() + "_" + refer->get_operand(2)->get_name();
-            if(get_ival(instr)!=0)output.push_back("b " + br1_name);
-            else output.push_back("b " + br2_name);
+            if(get_ival(instr)!=0)gen_code("b " + br1_name);
+            else gen_code("b " + br2_name);
+            if(get_ival(instr)!=0)cfg.set_jump_bb(dynamic_cast<BasicBlock*>(refer->get_operand(1)));
+            else cfg.set_jump_bb(dynamic_cast<BasicBlock*>(refer->get_operand(2)));
         }
         else if(refer->is_zext()){
             set_ival(refer, get_ival(instr));
@@ -612,27 +680,29 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
     auto l_reg = GetReg(lhs);
     auto r_reg = GetReg(rhs);
     switch (dynamic_cast<FCmpInst *>(instr)->get_cmp_op()) {
-        case FCmpInst::EQ: output.push_back("fcmp.ceq.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
-        case FCmpInst::NE: output.push_back("fcmp.cne.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
-        case FCmpInst::GT: output.push_back("fcmp.clt.s $fcc0, " + r_reg->print() + ", " + l_reg->print());break;
-        case FCmpInst::GE: output.push_back("fcmp.cle.s $fcc0, " + r_reg->print() + ", " + l_reg->print());break;
-        case FCmpInst::LT: output.push_back("fcmp.clt.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
-        case FCmpInst::LE: output.push_back("fcmp.cle.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
+        case FCmpInst::EQ: gen_code("fcmp.ceq.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
+        case FCmpInst::NE: gen_code("fcmp.cne.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
+        case FCmpInst::GT: gen_code("fcmp.clt.s $fcc0, " + r_reg->print() + ", " + l_reg->print());break;
+        case FCmpInst::GE: gen_code("fcmp.cle.s $fcc0, " + r_reg->print() + ", " + l_reg->print());break;
+        case FCmpInst::LT: gen_code("fcmp.clt.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
+        case FCmpInst::LE: gen_code("fcmp.cle.s $fcc0, " + l_reg->print() + ", " + r_reg->print());break;
     }
     if(refer->is_br()){
         string br1_name = "." + cur_func->get_name() + "_" + refer->get_operand(1)->get_name();
         string br2_name = "." + cur_func->get_name() + "_" + refer->get_operand(2)->get_name();
         bb_end_store(cur_bb);
-        output.push_back("bceqz $fcc0, " + br2_name);
-        output.push_back("b " + br1_name);
+        gen_code("bceqz $fcc0, " + br2_name);
+        gen_code("b " + br1_name);
+        cfg.set_cj_bb(dynamic_cast<BasicBlock*>(refer->get_operand(2)));
+        cfg.set_jump_bb(dynamic_cast<BasicBlock*>(refer->get_operand(1)));
     }
     else if(refer->is_zext()){
         string br = "." + cur_func->get_name() + "_" + instr->get_name();
         auto reg = AllocaReg(refer);
-        output.push_back("addi.w " + reg->print() + ", $zero" + ", 1");
-        output.push_back("bceqz $fcc0, " + br);
-        output.push_back("addi.w " + reg->print() + ", $zero" + ", 0");
-        output.push_back(br + ":");
+        gen_code("addi.w " + reg->print() + ", $zero" + ", 1");
+        gen_code("bceqz $fcc0, " + br);
+        gen_code("addi.w " + reg->print() + ", $zero" + ", 0");
+        gen_code(br + ":");
         UpdateReg(reg, instr);
     }
     else assert(false);
@@ -643,9 +713,9 @@ void CodeGen::phi_assembly(Instruction* instr){
     assert(off!=-1);
     // 判断整型还是浮点
     if(instr->get_type()->is_integer_type())
-        output.push_back("ld.w " + reg->print() + ", $fp, " + std::to_string(off));
+        gen_code("ld.w " + reg->print() + ", $fp, " + std::to_string(off));
     else if(instr->get_type()->is_float_type())
-        output.push_back("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
+        gen_code("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
     else assert(false);
     UpdateReg(reg, instr);
 }
@@ -655,14 +725,14 @@ void CodeGen::call_assembly(Instruction* instr){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
             offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
             SetOff(R[i].value, offset);
-            output.push_back("st.w " + R[i].print() + ", $fp, " + std::to_string(offset));
+            gen_code("st.w " + R[i].print() + ", $fp, " + std::to_string(offset));
         }
     }
     for(int i=0;i<=23;i++){
         if(is_active_out(FR[i].value, instr)&&!is_stored(FR[i].value)){
             offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
             SetOff(FR[i].value, offset);
-            output.push_back("fst.s " + FR[i].print() + ", $fp, " + std::to_string(offset));
+            gen_code("fst.s " + FR[i].print() + ", $fp, " + std::to_string(offset));
         }
     }
     // second load the arguments (if the number of arguments is more than 8)store the extra arguments in the memory
@@ -673,27 +743,27 @@ void CodeGen::call_assembly(Instruction* instr){
             if(j++<8){// 寄存器传参
                 auto s_reg = GetReg(op);
                 if(&FR[j-1]!=s_reg)
-                    output.push_back("fmov.s " + FR[j-1].print() + ", " + s_reg->print());
+                    gen_code("fmov.s " + FR[j-1].print() + ", " + s_reg->print());
                 UpdateReg(&FR[j-1], op);
             }
             else{//  堆栈传参
-                output.push_back("fst.s " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
+                gen_code("fst.s " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
                 off += op->get_type()->get_size();
             }   
         else if(i++<8){// 寄存器传参
                 auto s_reg = GetReg(op);
                 if(&R[i+3]!=s_reg)
-                    output.push_back("or " + R[i+3].print() + ", " + s_reg->print() + ", $zero");
+                    gen_code("or " + R[i+3].print() + ", " + s_reg->print() + ", $zero");
                 UpdateReg(&R[i+3], op);
             }
         else{   //  堆栈传参
-            output.push_back("st.w " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
+            gen_code("st.w " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
             off += op->get_type()->get_size();
         }
     }
     if(off>max_arg_size)max_arg_size=off;
     // third "bl " function_name
-    output.push_back("bl " + instr->get_operand(0)->get_name());
+    gen_code("bl " + instr->get_operand(0)->get_name());
     // fourth mark the value of registers as null
     for(int i=4;i<=20;i++)UpdateReg(&R[i], nullptr);
     for(int i=0;i<=23;i++)UpdateReg(&FR[i], nullptr);
@@ -709,18 +779,18 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
             addr = AllocaReg(instr);
             int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(2))->get_value();
             int elem_size = type->get_array_element_type()->get_size();
-            output.push_back("la.local " + addr->print() + ", " + pt->get_name());
-            if(elem_off*elem_size)output.push_back("addi.d " + addr->print() + ", " + addr->print() + ", " + std::to_string(elem_off*elem_size));
+            gen_code("la.local " + addr->print() + ", " + pt->get_name());
+            if(elem_off*elem_size)gen_code("addi.d " + addr->print() + ", " + addr->print() + ", " + std::to_string(elem_off*elem_size));
         }
         else {
             auto index_reg = GetReg(instr->get_operand(2));
             addr = AllocaReg(instr);
             UpdateReg(index_reg, nullptr);
             int elem_size = type->get_array_element_type()->get_size();
-            output.push_back("la.local " + addr->print() + ", " + pt->get_name());
+            gen_code("la.local " + addr->print() + ", " + pt->get_name());
             if(elem_size){
-                output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
-                output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
+                gen_code("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
+                gen_code("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
             }
         }
         UpdateReg(addr, instr);
@@ -738,9 +808,9 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
                 auto index_reg = GetReg(instr->get_operand(2));
                 addr = AllocaReg(instr);
                 int elem_size = type->get_array_element_type()->get_size();
-                output.push_back("slli.d " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
-                output.push_back("addi.d " + addr->print() + ", $fp, " + std::to_string(LocalOff[pt]));
-                output.push_back("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
+                gen_code("slli.d " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
+                gen_code("addi.d " + addr->print() + ", $fp, " + std::to_string(LocalOff[pt]));
+                gen_code("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
                 UpdateReg(index_reg, nullptr);
                 UpdateReg(addr, instr);
             }
@@ -751,15 +821,15 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
                 addr = AllocaReg(instr);
                 int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(1))->get_value();
                 int elem_size = pt->get_type()->get_pointer_element_type()->get_size();
-                output.push_back("addi.d " + addr->print() + ", " + reg->print() + ", " + std::to_string(elem_off*elem_size));
+                gen_code("addi.d " + addr->print() + ", " + reg->print() + ", " + std::to_string(elem_off*elem_size));
             }
             else{
                 auto index_reg = GetReg(instr->get_operand(1));
                 addr = AllocaReg(instr);
                 UpdateReg(index_reg, nullptr);
                 int elem_size = type->get_size();
-                output.push_back("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
-                output.push_back("add.d " + addr->print() + ", " + reg->print() + ", " + index_reg->print());
+                gen_code("slli.w " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
+                gen_code("add.d " + addr->print() + ", " + reg->print() + ", " + index_reg->print());
             }
             UpdateReg(addr, instr);
         }
@@ -783,7 +853,7 @@ void CodeGen::zext_assembly(Instruction* instr){
     }
     auto reg = GetReg(val);
     auto res = AllocaReg(instr);
-    output.push_back("or " + res->print() + ", " + reg->print() + ", $zero");
+    gen_code("or " + res->print() + ", " + reg->print() + ", $zero");
     UpdateReg(res, instr);
 }
 void CodeGen::fptosi_assembly(Instruction* instr){
@@ -791,16 +861,16 @@ void CodeGen::fptosi_assembly(Instruction* instr){
     auto reg = GetReg(val);
     auto tmp_fr = AllocaTmpReg();
     auto res = AllocaReg(instr);
-    output.push_back("ftint.w.s " + reg->print() + ", " + reg->print());
-    output.push_back("movfr2gr.s " + res->print() + ", " + reg->print());
+    gen_code("ftint.w.s " + reg->print() + ", " + reg->print());
+    gen_code("movfr2gr.s " + res->print() + ", " + reg->print());
     UpdateReg(res, instr);
 }
 void CodeGen::sitofp_assembly(Instruction* instr){
     auto val = instr->get_operand(0);
     auto reg = GetReg(val);
     auto res = AllocaReg(instr);
-    output.push_back("movgr2fr.w " + res->print() + ", " + reg->print());
-    output.push_back("ffint.s.w " + res->print() + ", " + res->print());
+    gen_code("movgr2fr.w " + res->print() + ", " + reg->print());
+    gen_code("ffint.s.w " + res->print() + ", " + res->print());
     UpdateReg(res, instr);
 }
 Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
@@ -814,20 +884,20 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 if(val==0)return &R[0];
                 else if(val>0&&val<=4095){// 可直接加载的小立即数
                     auto reg = AllocaReg(v);
-                    output.push_back("ori " + reg->print() + ", $zero, " + std::to_string(val));
+                    gen_code("ori " + reg->print() + ", $zero, " + std::to_string(val));
                     UpdateReg(reg, v);
                     return reg;
                 }
                 else if(val>=-2048&&val<0){
                     auto reg = AllocaReg(v);
-                    output.push_back("addi.w " + reg->print() + ", $zero, " + std::to_string(val));
+                    gen_code("addi.w " + reg->print() + ", $zero, " + std::to_string(val));
                     UpdateReg(reg, v);
                     return reg;
                 }
                 else{ // 不可直接加载的大数
                     auto reg = AllocaReg(v);
-                    output.push_back("lu12i.w " + reg->print() + ", " + std::to_string(val>>12));
-                    if(val%4096)output.push_back("ori " + reg->print() + ", " + reg->print() + ", " + std::to_string(val%4096));
+                    gen_code("lu12i.w " + reg->print() + ", " + std::to_string(val>>12));
+                    if(val%4096)gen_code("ori " + reg->print() + ", " + reg->print() + ", " + std::to_string(val%4096));
                     UpdateReg(reg, v);
                     return reg;
                 }
@@ -837,17 +907,16 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 auto reg = AllocaReg(v);
                 float f_val = get_fval(v);
                 int i_val = *(int*)&f_val;
-                output.push_back("lu12i.w " + tmp_r->print() + ", " + std::to_string(i_val>>12));
-                if(i_val%4096)output.push_back("ori " + tmp_r->print() + ", " + tmp_r->print() + ", " + std::to_string(i_val%4096));
-                output.push_back("movgr2fr.w " + reg->print() + ", " + tmp_r->print());
-                tmp_r->locked = false;
+                gen_code("lu12i.w " + tmp_r->print() + ", " + std::to_string(i_val>>12));
+                if(i_val%4096)gen_code("ori " + tmp_r->print() + ", " + tmp_r->print() + ", " + std::to_string(i_val%4096));
+                gen_code("movgr2fr.w " + reg->print() + ", " + tmp_r->print());
                 UpdateReg(reg, v);
                 return reg;
             }
         }
         else if(dynamic_cast<GlobalVariable*>(v)) {// 全局变量
             auto reg = AllocaReg(v);
-            output.push_back("la.local " + reg->print() + "," + v->get_name());
+            gen_code("la.local " + reg->print() + "," + v->get_name());
             UpdateReg(reg, v);
             return reg;
         }
@@ -858,15 +927,15 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
                 int off = CurOff(v);
                 assert(off!=-1);
                 if(v->get_type()->is_float_type())
-                    output.push_back("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
+                    gen_code("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
                 else if(v->get_type()->is_pointer_type())
-                    output.push_back("ld.d " + reg->print() + ", $fp, " + std::to_string(off));
+                    gen_code("ld.d " + reg->print() + ", $fp, " + std::to_string(off));
                 else
-                    output.push_back("ld.w " + reg->print() + ", $fp, " + std::to_string(off));
+                    gen_code("ld.w " + reg->print() + ", $fp, " + std::to_string(off));
             }
             else {//局部指针值
                 int off = LocalOff[v];
-                output.push_back("addi.d " + reg->print() + ", $fp, " + std::to_string(off));
+                gen_code("addi.d " + reg->print() + ", $fp, " + std::to_string(off));
             }
             UpdateReg(reg, v);
             return reg;
@@ -876,30 +945,36 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
 
 }
 Reg* CodeGen::AllocaReg(Value* v){
-    if(v->get_type()->is_float_type())return LinearScanFR();
-    else return LinearScanR();
+    if(v->get_type()->is_float_type()){
+        auto reg = LinearScanFR();
+        locked_regs.insert(reg);
+        return reg;
+    }
+    else {
+        auto reg = LinearScanR();
+        locked_regs.insert(reg);
+        return reg;
+    }
 }
 Reg* CodeGen::AllocaTmpReg(){
     for(int i=4;i<=20;i++)
-        if(!is_active(R[i].value, point)&&R[i].locked!=true){
-            R[i].locked = true;
+        if(!is_active(R[i].value, point)&&locked_regs.find(&R[i])==locked_regs.end()){
             return &R[i];
         }
 } 
 Reg* CodeGen::AllocaTmpFReg(){
     for(int i=0;i<=23;i++)
-        if(!is_active(FR[i].value, point)&&FR[i].locked!=true){
-            FR[i].locked = true;
+        if(!is_active(FR[i].value, point)&&locked_regs.find(&FR[i])==locked_regs.end()){
             return &FR[i];
         }
 }
 Reg* LinearScanR(){
     for(int i=4;i<=20;i++)
-        if(!is_active(R[i].value, point)&&R[i].locked!=true)return &R[i];
+        if(!is_active(R[i].value, point)&&locked_regs.find(&R[i])==locked_regs.end())return &R[i];
 }
 Reg* LinearScanFR(){
     for(int i=0;i<=23;i++)
-        if(!is_active(FR[i].value, point)&&FR[i].locked!=true)return &FR[i];
+        if(!is_active(FR[i].value, point)&&locked_regs.find(&R[i])==locked_regs.end())return &FR[i];
 }
 Reg* RandomReg(){
     next_reg = (next_reg+1)%9;
