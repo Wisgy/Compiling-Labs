@@ -351,7 +351,7 @@ void CodeGen::run() {
             }
             // calculate the memory used by the function
             offset -= max_arg_size;
-            int bytes = -offset + offset%16;
+            int bytes = -offset + (offset%16?16+offset%16:0);
             if(bytes!=16)memory_used = true;
             // revise the beginning instructions 
             func_entry[0] = func_entry[0] + std::to_string(-bytes);
