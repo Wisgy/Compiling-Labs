@@ -200,7 +200,10 @@ inline bool is_used(Value* inst){
 }
 using namespace WrapFunc;
 // Short Function Optimization
-
+bool memory_used;
+bool call_used;
+vector<string> func_entry;
+vector<string> func_exit;
 // Control Flow Optimization
 class CFG{
     public:
@@ -262,6 +265,7 @@ void CodeGen::CFopt(Function* func){
     }
     stack.push_back(func->get_entry_block());
     visited.clear();
+    if(memory_used||call_used)output.insert(output.end(), func_entry.begin(), func_entry.end());
     while(stack.size()){// insert codes of the basicblock in a depth-first manner
         auto bb = stack.back();
         stack.pop_back();
@@ -275,9 +279,23 @@ void CodeGen::CFopt(Function* func){
         }
         output.insert(output.end(), cfg[bb].begin(),cfg[bb].end());
     }
+    if(memory_used||call_used)output.insert(output.end(), func_exit.begin(), func_exit.end());
 }
 inline void CodeGen::gen_code(string assem){
     cfg.push_back(assem, cur_bb);
+}
+inline void func_init(Function& func){
+    OffsetDesc.clear();
+    RegDesc.clear();
+    cfg.clear();
+    ActiveVars(&func);
+    cur_func = &func;
+    offset = -16;
+    max_arg_size = 0;
+    memory_used = false;
+    call_used = false;
+    func_entry.clear();
+    func_exit.clear();
 }
 void CodeGen::run() {
     output.push_back(".text");
@@ -289,13 +307,7 @@ void CodeGen::run() {
     for (auto &func : m->get_functions())
         if (not func.is_declaration()) {
             // initialize
-            OffsetDesc.clear();
-            RegDesc.clear();
-            cfg.clear();
-            ActiveVars(&func);
-            cur_func = &func;
-            offset = -16;
-            max_arg_size = 0;
+            func_init(func);
             // arguments
             int i,f,off;
             i=f=off=0;
@@ -329,29 +341,31 @@ void CodeGen::run() {
             output.push_back(".type " + func.get_name() + ", @function");
             output.push_back(func.get_name() + ":");
             int pos = output.size();// record the location of the following instruction
-            output.push_back("addi.d $sp, $sp, ");
-            output.push_back("st.d $ra, $sp, ");
-            output.push_back("st.d $fp, $sp, ");
-            output.push_back("addi.d $fp, $sp, ");
+            func_entry.push_back("addi.d $sp, $sp, ");
+            func_entry.push_back("st.d $ra, $sp, ");
+            func_entry.push_back("st.d $fp, $sp, ");
+            func_entry.push_back("addi.d $fp, $sp, ");
             // body
             for(auto& bb : func.get_basic_blocks()){
                 visit(&bb);
             }
-            // Control Flow opt
-            CFopt(cur_func);
             // calculate the memory used by the function
             offset -= max_arg_size;
-            int bytes = -offset + 16 + offset%16;
+            int bytes = -offset + offset%16;
+            if(bytes!=16)memory_used = true;
             // revise the beginning instructions 
-            output[pos] = output[pos] + std::to_string(-bytes);
-            output[pos+1] = output[pos+1] + std::to_string(bytes-8);
-            output[pos+2] = output[pos+2] + std::to_string(bytes-16);
-            output[pos+3] = output[pos+3] + std::to_string(bytes);
+            func_entry[0] = func_entry[0] + std::to_string(-bytes);
+            func_entry[1] = func_entry[1] + std::to_string(bytes-8);
+            func_entry[2] = func_entry[2] + std::to_string(bytes-16);
+            func_entry[3] = func_entry[3] + std::to_string(bytes);
             // return
-            output.push_back("." + func.get_name() +"_return :");
-            output.push_back("ld.d $ra, $sp, " + std::to_string(bytes-8));
-            output.push_back("ld.d $fp, $sp, " + std::to_string(bytes-16));
-            output.push_back("addi.d $sp, $sp, " + std::to_string(bytes));
+            func_exit.push_back("." + func.get_name() +"_return :");
+            func_exit.push_back("ld.d $ra, $sp, " + std::to_string(bytes-8));
+            func_exit.push_back("ld.d $fp, $sp, " + std::to_string(bytes-16));
+            func_exit.push_back("addi.d $sp, $sp, " + std::to_string(bytes));
+            // Control Flow opt
+            CFopt(cur_func);
+            if(!(memory_used||call_used))output.push_back("." + func.get_name() +"_return :");
             output.push_back("jr $ra");
         }
 }
@@ -755,6 +769,7 @@ void CodeGen::phi_assembly(Instruction* instr){
 }
 void CodeGen::call_assembly(Instruction* instr){
     // first store the value of temporary registers and arguments registers
+    call_used = true;
     for(int i=4;i<=20;i++){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
             offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
