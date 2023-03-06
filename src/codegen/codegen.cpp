@@ -205,6 +205,10 @@ using namespace WrapFunc;
 class CFG{
     public:
         CFG() = default;
+        BasicBlock* jump_end_bb(BasicBlock* bb){
+            if(bb2code[bb].size()!=2)return bb;
+            else return jump_end_bb(jump_bb[bb]);
+        }
         void push_back(string code, BasicBlock* bb) { bb2code[bb].push_back(code); }
         BasicBlock* get_jump_bb(BasicBlock* bb) { return jump_bb.find(bb)!=jump_bb.end()?jump_bb[bb]:nullptr;}
         BasicBlock* get_cj_bb(BasicBlock* bb) { return cj_bb.find(bb)!=cj_bb.end()?cj_bb[bb]:nullptr;}
@@ -213,11 +217,12 @@ class CFG{
             assert(next_bb&&jump_bb.find(bb)==jump_bb.end());
             jump_bb[bb] = next_bb;
         }
+        void new_jump_bb(BasicBlock* next_bb, BasicBlock* bb) { jump_bb[bb] = next_bb; }
         void set_cj_bb(BasicBlock* next_bb, BasicBlock* bb = cur_bb){
             assert(next_bb&&cj_bb.find(bb)==cj_bb.end());
             cj_bb[bb] = next_bb;
         }
-        void pop_back(BasicBlock* bb) { bb2code[bb].pop_back(); }
+        void new_cj_bb(BasicBlock* next_bb, BasicBlock* bb) { cj_bb[bb] = next_bb; }
         vector<string>& operator[] (BasicBlock* bb) { return bb2code[bb]; }
     private:
         std::map<BasicBlock*, vector<string>> bb2code;
@@ -229,14 +234,43 @@ void CodeGen::CFopt(Function* func){
     std::map<BasicBlock*, bool> visited;
     vector<BasicBlock*> stack;
     stack.push_back(func->get_entry_block());
+    while(stack.size()){// for blocks with consecutive jumps, jump to the end block
+        auto bb = stack.back();
+        stack.pop_back();
+        if(visited[bb])continue;
+        visited[bb]=true;
+        if(cfg.get_cj_bb(bb)){
+            if(cfg[cfg.get_cj_bb(bb)].size()==2){
+                BasicBlock* new_branch = cfg.jump_end_bb(cfg.get_cj_bb(bb));
+                int index = cfg[bb].size()-2;
+                cfg[bb][index] = cfg[bb][index].substr(0, cfg[bb][index].find('.')) + "." + cur_func->get_name() + "_" + new_branch->get_name(); 
+                cfg.new_cj_bb(new_branch, bb);
+                stack.push_back(new_branch);
+            }
+            else stack.push_back(cfg.get_cj_bb(bb));
+        }
+        if(cfg.get_jump_bb(bb)){
+            if(cfg[cfg.get_jump_bb(bb)].size()==2){
+                BasicBlock* new_branch = cfg.jump_end_bb(cfg.get_jump_bb(bb));
+                int index = cfg[bb].size()-1;
+                cfg[bb][index] = cfg[bb][index].substr(0, cfg[bb][index].find('.')) + "." + cur_func->get_name() + "_" + new_branch->get_name(); 
+                cfg.new_jump_bb(new_branch, bb);
+                stack.push_back(new_branch);
+            }
+            else stack.push_back(cfg.get_jump_bb(bb));
+        }
+    }
+    stack.push_back(func->get_entry_block());
+    visited.clear();
     while(stack.size()){// insert codes of the basicblock in a depth-first manner
         auto bb = stack.back();
         stack.pop_back();
         if(visited[bb])continue;
         visited[bb]=true;
         if(cfg.get_cj_bb(bb))stack.push_back(cfg.get_cj_bb(bb));
-        if(cfg.get_jump_bb(bb)){
-            cfg.pop_back(bb);// remove the redundant br instruction
+        if(cfg.get_jump_bb(bb)&&!visited[cfg.get_jump_bb(bb)]){// remove the redundant br instruction
+            cfg[bb].pop_back();
+            if(cfg[bb].size()==1)cfg[bb].pop_back();
             stack.push_back(cfg.get_jump_bb(bb));
         }
         output.insert(output.end(), cfg[bb].begin(),cfg[bb].end());
@@ -738,27 +772,27 @@ void CodeGen::call_assembly(Instruction* instr){
     // second load the arguments (if the number of arguments is more than 8)store the extra arguments in the memory
     int i,j,off=0;
     for(i=0,j=0;(i+j+1)<instr->get_num_operand();){
-        auto op = instr->get_operand(i+j+1);
-        if(op->get_type()->is_float_type())
+        auto arg = instr->get_operand(i+j+1);
+        if(arg->get_type()->is_float_type())
             if(j++<8){// 寄存器传参
-                auto s_reg = GetReg(op);
+                auto s_reg = GetReg(arg);
                 if(&FR[j-1]!=s_reg)
                     gen_code("fmov.s " + FR[j-1].print() + ", " + s_reg->print());
-                UpdateReg(&FR[j-1], op);
+                UpdateReg(&FR[j-1], arg);
             }
             else{//  堆栈传参
-                gen_code("fst.s " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
-                off += op->get_type()->get_size();
+                gen_code("fst.s " + GetReg(arg)->print() + ", $sp, " + std::to_string(off));
+                off += arg->get_type()->get_size();
             }   
         else if(i++<8){// 寄存器传参
-                auto s_reg = GetReg(op);
+                auto s_reg = GetReg(arg);
                 if(&R[i+3]!=s_reg)
                     gen_code("or " + R[i+3].print() + ", " + s_reg->print() + ", $zero");
-                UpdateReg(&R[i+3], op);
+                UpdateReg(&R[i+3], arg);
             }
         else{   //  堆栈传参
-            gen_code("st.w " + GetReg(op)->print() + ", $sp, " + std::to_string(off));
-            off += op->get_type()->get_size();
+            gen_code("st.w " + GetReg(arg)->print() + ", $sp, " + std::to_string(off));
+            off += arg->get_type()->get_size();
         }
     }
     if(off>max_arg_size)max_arg_size=off;
@@ -875,7 +909,9 @@ void CodeGen::sitofp_assembly(Instruction* instr){
 }
 Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
     if(is_in_reg(v)) {// 如果寄存器存在此变量的值
-        return CurReg(v);
+        auto reg = CurReg(v);
+        locked_regs.insert(reg);
+        return reg;
     }
     else{
         if(is_const(v)) {// 常量
@@ -974,7 +1010,7 @@ Reg* LinearScanR(){
 }
 Reg* LinearScanFR(){
     for(int i=0;i<=23;i++)
-        if(!is_active(FR[i].value, point)&&locked_regs.find(&R[i])==locked_regs.end())return &FR[i];
+        if(!is_active(FR[i].value, point)&&locked_regs.find(&FR[i])==locked_regs.end())return &FR[i];
 }
 Reg* RandomReg(){
     next_reg = (next_reg+1)%9;
@@ -985,7 +1021,8 @@ Reg* RandomFReg(){
     return &FR[next_freg+8];
 }
 void UpdateReg(Reg* r, Value* val){
-    if (is_in_reg(val))CurReg(val)->value = nullptr;
+    if (val) locked_regs.insert(r); 
+    if (is_in_reg(val)) CurReg(val)->value = nullptr;
     if (r->value!=nullptr) SetReg(r->value, nullptr);
     r->value = val;
     if (val) SetReg(val, r);
