@@ -236,6 +236,7 @@ class InlineFunc{
                     set_fval(const_opt::get_fval(real_args[index_arg]), formal_arg);
                 }
                 else no_map.insert(formal_arg);
+                index_arg++;
             }
             // traverse instructions
             BasicBlock* bb = func->get_entry_block();
@@ -244,7 +245,7 @@ class InlineFunc{
                     instr = &inst;
                     auto op = instr->get_instr_type();
                     int num = instr->get_num_operand();
-                    auto lhs = num==2?instr->get_operand(0):nullptr;
+                    auto lhs = instr->get_operand(0);
                     auto rhs = num==2?instr->get_operand(1):nullptr;
                     switch (op) {
                     case Instruction::add: set_ival(get_const_int_value(lhs) + get_const_int_value(rhs));break;
@@ -304,6 +305,7 @@ class InlineFunc{
                             inline_code.push_back("movgr2fr.w $fa0, $r4");
                         }
                         else return false;
+                        return true;
                     default: return false;
                     }
                     if(!able_opt)return false;
@@ -905,6 +907,9 @@ void CodeGen::call_assembly(Instruction* instr){
         std::shared_ptr<InlineFunc> in_func = inline_func[instr->get_operand(0)];
         if(in_func->run(real_args)){
             gen_code(in_func->gen_inline_code());
+            if(instr->get_type()->is_integer_type())
+                UpdateReg(&R[4], instr);
+            else {UpdateReg(&FR[0], instr);UpdateReg(&R[4], nullptr);}
             return;
         }
     }
