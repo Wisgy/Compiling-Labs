@@ -1,5 +1,5 @@
 #include "codegen.hpp"
-
+#include<memory>
 // $r0          $zero       constant 0
 // $r1          $ra         return address
 // $r2          $tp         thread pointer
@@ -25,6 +25,11 @@ std::map<BasicBlock*, std::map<Value*, Reg*>> RegDesc;
 std::map<Value*, int> OffsetDesc;
 //Offset Optimization
 std::map<Value*, int> LocalOff;
+//GlobalValue Optimization
+namespace gv_opt{
+    std::map<Value*, int> mem_int;
+    std::map<Value*, float> mem_float;
+}
 //Constant Optimization
 const bool const_optim_flag=true;
 namespace const_opt{
@@ -65,9 +70,44 @@ int max_arg_size;
 std::map<BasicBlock*, set<Value*>> OUT;// active vars at the exit of the basicblocks
 std::map<Value*, set<Value*>> in;
 std::map<Value*, set<Value*>> out;
-inline std::set<Value*> clone(set<Value*> s){
-    return s;
+namespace ActiveVarsFunc{//Wrapping functions for program point update and discrimination
+    inline std::set<Value*> clone(set<Value*> s){
+        return s;
+    }
+    inline bool is_active(Value* inst, BasicBlock* bb){
+        return OUT[bb].find(inst)!=OUT[bb].end();
+    }
+    inline bool is_active(Value* inst, Value* point){// 当前程序点活跃
+        return in[point].find(inst)!=in[point].end();
+    }
+    inline bool is_active_out(Value* inst, Value* point){// 当前程序点出口活跃
+        return out[point].find(inst)!=out[point].end();
+    }
+    inline int CurOff(Value* inst){// acquire the memory offset of inst
+        assert(OffsetDesc.find(inst)!=OffsetDesc.end());
+        return OffsetDesc[inst];
+    }
+    inline Reg* CurReg(Value* inst, BasicBlock* bb=cur_bb){// acquire the current reg of inst
+        assert(RegDesc[bb].find(inst)!=RegDesc[bb].end());
+        return RegDesc[bb][inst];
+    }
+    inline void SetOff(Value* inst, int off){// set the memory offset of inst
+        OffsetDesc[inst]=off;
+    }
+    inline void SetReg(Value* inst, Reg* reg, BasicBlock* bb=cur_bb){// update the position of inst's reg
+        RegDesc[bb][inst]=reg;
+    }
+    inline bool is_in_reg(Value* inst, BasicBlock* bb=cur_bb){// determine whether inst has its own address descriptor
+        return RegDesc[bb].find(inst)!=RegDesc[bb].end()&&RegDesc[bb][inst]!=nullptr;
+    }
+    inline bool is_stored(Value* inst){// determine whether inst has been allocated memory space for 
+        return OffsetDesc.find(inst)!=OffsetDesc.end();
+    }
+    inline bool is_used(Value* inst){
+        return is_in_reg(inst) || is_stored(inst) || is_const(inst);
+    }
 }
+using namespace ActiveVarsFunc;
 void ActiveVars(Function *func){// 根据函数返回对应OUT
     OUT.clear();
     // use[bb],def[bb]
@@ -164,46 +204,128 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
     // }
     // std::cout<<std::endl;
 }
-namespace WrapFunc{//Wrapping functions for program point update and discrimination
-inline bool is_active(Value* inst, BasicBlock* bb){
-    return OUT[bb].find(inst)!=OUT[bb].end();
-}
-inline bool is_active(Value* inst, Value* point){// 当前程序点活跃
-    return in[point].find(inst)!=in[point].end();
-}
-inline bool is_active_out(Value* inst, Value* point){// 当前程序点出口活跃
-    return out[point].find(inst)!=out[point].end();
-}
-inline int CurOff(Value* inst){// acquire the memory offset of inst
-    assert(OffsetDesc.find(inst)!=OffsetDesc.end());
-    return OffsetDesc[inst];
-}
-inline Reg* CurReg(Value* inst, BasicBlock* bb=cur_bb){// acquire the current reg of inst
-    assert(RegDesc[bb].find(inst)!=RegDesc[bb].end());
-    return RegDesc[bb][inst];
-}
-inline void SetOff(Value* inst, int off){// set the memory offset of inst
-    OffsetDesc[inst]=off;
-}
-inline void SetReg(Value* inst, Reg* reg, BasicBlock* bb=cur_bb){// update the position of inst's reg
-    RegDesc[bb][inst]=reg;
-}
-inline bool is_in_reg(Value* inst, BasicBlock* bb=cur_bb){// determine whether inst has its own address descriptor
-    return RegDesc[bb].find(inst)!=RegDesc[bb].end()&&RegDesc[bb][inst]!=nullptr;
-}
-inline bool is_stored(Value* inst){// determine whether inst has been allocated memory space for 
-    return OffsetDesc.find(inst)!=OffsetDesc.end();
-}
-inline bool is_used(Value* inst){
-    return is_in_reg(inst) || is_stored(inst) || const_opt::is_const(inst);
-}
-}
-using namespace WrapFunc;
+
 // Short Function Optimization
+class InlineFunc{
+    public:
+        InlineFunc(Function* fun) : func(fun) {}
+        void set_ival(int val, Value* inst = nullptr){ if(inst)int_map[inst] = val;else int_map[instr] = val; }
+        void set_fval(float val, Value* inst = nullptr) { if(inst)float_map[inst] = val; else float_map[instr] = val; }
+        int get_const_int_value(Value* ins){
+            if(int_map.find(ins)==int_map.end()){able_opt=false;return 0;}
+            return int_map[ins];
+        }
+        float get_const_fp_value(Value* ins){
+            if(float_map.find(ins)==float_map.end()){able_opt=false;return 0;}
+            return float_map[ins];
+        }
+        vector<string>& gen_inline_code(){return inline_code;}
+        bool run(vector<Value*>& real_args){
+            // initialize
+            inline_code.clear();
+            int_map.clear();
+            float_map.clear();
+            able_opt = true;
+            // insert real_args into mapping table
+            int index_arg = 0;
+            for(auto formal_arg : func->get_args()){
+                if (formal_arg->get_type()->is_integer_type()&&const_opt::is_const(real_args[index_arg])){
+                    set_ival(const_opt::get_ival(real_args[index_arg]), formal_arg);
+                }
+                else if (formal_arg->get_type()->is_float_type()&&const_opt::is_const(real_args[index_arg])){
+                    set_fval(const_opt::get_fval(real_args[index_arg]), formal_arg);
+                }
+                else no_map.insert(formal_arg);
+            }
+            // traverse instructions
+            BasicBlock* bb = func->get_entry_block();
+            while(able_opt){
+                for(auto& inst : bb->get_instructions()){
+                    instr = &inst;
+                    auto op = instr->get_instr_type();
+                    int num = instr->get_num_operand();
+                    auto lhs = num==2?instr->get_operand(0):nullptr;
+                    auto rhs = num==2?instr->get_operand(1):nullptr;
+                    switch (op) {
+                    case Instruction::add: set_ival(get_const_int_value(lhs) + get_const_int_value(rhs));break;
+                    case Instruction::sub: set_ival(get_const_int_value(lhs) - get_const_int_value(rhs));break;
+                    case Instruction::mul: set_ival(get_const_int_value(lhs) * get_const_int_value(rhs));break;
+                    case Instruction::sdiv: set_ival(get_const_int_value(lhs) / get_const_int_value(rhs));break;
+                    case Instruction::fadd: set_fval(get_const_fp_value(lhs) + get_const_fp_value(rhs));break;
+                    case Instruction::fsub: set_fval(get_const_fp_value(lhs) - get_const_fp_value(rhs));break;
+                    case Instruction::fmul: set_fval(get_const_fp_value(lhs) * get_const_fp_value(rhs));break;
+                    case Instruction::fdiv: set_fval(get_const_fp_value(lhs) / get_const_fp_value(rhs));break;
+                    case Instruction::cmp:
+                        switch (dynamic_cast<CmpInst *>(instr)->get_cmp_op()) {
+                        case CmpInst::EQ: set_ival(get_const_int_value(lhs) == get_const_int_value(rhs));break;
+                        case CmpInst::NE: set_ival(get_const_int_value(lhs) != get_const_int_value(rhs));break;
+                        case CmpInst::GT: set_ival(get_const_int_value(lhs) > get_const_int_value(rhs));break;
+                        case CmpInst::GE: set_ival(get_const_int_value(lhs) >= get_const_int_value(rhs));break;
+                        case CmpInst::LT: set_ival(get_const_int_value(lhs) < get_const_int_value(rhs));break;
+                        case CmpInst::LE: set_ival(get_const_int_value(lhs) <= get_const_int_value(rhs));break;
+                        }
+                    case Instruction::fcmp:
+                        switch (dynamic_cast<FCmpInst *>(instr)->get_cmp_op()) {
+                        case FCmpInst::EQ: set_ival(get_const_fp_value(lhs) == get_const_fp_value(rhs));break;
+                        case FCmpInst::NE: set_ival(get_const_fp_value(lhs) != get_const_fp_value(rhs));break;
+                        case FCmpInst::GT: set_ival(get_const_fp_value(lhs) > get_const_fp_value(rhs));break;
+                        case FCmpInst::GE: set_ival(get_const_fp_value(lhs) >= get_const_fp_value(rhs));break;
+                        case FCmpInst::LT: set_ival(get_const_fp_value(lhs) < get_const_fp_value(rhs));break;
+                        case FCmpInst::LE: set_ival(get_const_fp_value(lhs) <= get_const_fp_value(rhs));break;
+                        }
+                    case Instruction::sitofp: set_fval((float)get_const_int_value(lhs));break;
+                    case Instruction::fptosi: set_ival((int)get_const_fp_value(lhs));break;
+                    case Instruction::zext: set_ival((int)get_const_int_value(lhs));break;
+                    case Instruction::br:   
+                        if(lhs==nullptr) 
+                            bb = dynamic_cast<BasicBlock*>(instr->get_operand(0));
+                        else if(get_const_int_value(lhs)){
+                            bb = dynamic_cast<BasicBlock*>(instr->get_operand(1));
+                        }
+                        else bb = dynamic_cast<BasicBlock*>(instr->get_operand(2));
+                        break;
+                    case Instruction::ret: 
+                        if(func->get_return_type()->is_integer_type()){
+                            int val = get_const_int_value(lhs);
+                            if(val>0&&val<=4095)
+                                inline_code.push_back("ori $r4, $zero, " + std::to_string(val));
+                            else if(val>=-2048&&val<0)
+                                inline_code.push_back("addi.w $r4, $zero, " + std::to_string(val));
+                            else{ 
+                                inline_code.push_back("lu12i.w $r4, " + std::to_string(val>>12));
+                                if(val%4096)inline_code.push_back("ori $r4, $r4, " + std::to_string(val%4096));
+                            }
+                        }
+                        else if(func->get_return_type()->is_float_type()){
+                            float f_val = get_const_fp_value(lhs);
+                            int i_val = *(int*)&f_val;
+                            inline_code.push_back("lu12i.w $r4, " + std::to_string(i_val>>12));
+                            if(i_val%4096)inline_code.push_back("ori $r4, $r4, " + std::to_string(i_val%4096));
+                            inline_code.push_back("movgr2fr.w $fa0, $r4");
+                        }
+                        else return false;
+                    default: return false;
+                    }
+                    if(!able_opt)return false;
+                }
+            }
+        }
+    
+    private:
+        bool able_opt;
+        Instruction* instr;
+        vector<string> inline_code;
+        std::set<Value*> no_map;
+        std::map<Value*, int> int_map;
+        std::map<Value*, float> float_map; 
+        Function* func;
+};
 bool memory_used;
 bool call_used;
 vector<string> func_entry;
 vector<string> func_exit;
+std::map<Function*, std::shared_ptr<vector<string>>>short_func;
+std::map<Value*, std::shared_ptr<InlineFunc>>inline_func;
 // Control Flow Optimization
 class CFG{
     public:
@@ -213,6 +335,7 @@ class CFG{
             else return jump_end_bb(jump_bb[bb]);
         }
         void push_back(string code, BasicBlock* bb) { bb2code[bb].push_back(code); }
+        void insert(vector<string>& codes, BasicBlock* bb){ bb2code[bb].insert(bb2code[bb].end(), codes.begin(), codes.end());}
         BasicBlock* get_jump_bb(BasicBlock* bb) { return jump_bb.find(bb)!=jump_bb.end()?jump_bb[bb]:nullptr;}
         BasicBlock* get_cj_bb(BasicBlock* bb) { return cj_bb.find(bb)!=cj_bb.end()?cj_bb[bb]:nullptr;}
         void clear() {bb2code.clear();cj_bb.clear();jump_bb.clear();}
@@ -265,7 +388,7 @@ void CodeGen::CFopt(Function* func){
     }
     stack.push_back(func->get_entry_block());
     visited.clear();
-    if(memory_used||call_used)output.insert(output.end(), func_entry.begin(), func_entry.end());
+    std::shared_ptr<vector<string>> func_body = std::make_shared<vector<string>>();
     while(stack.size()){// insert codes of the basicblock in a depth-first manner
         auto bb = stack.back();
         stack.pop_back();
@@ -277,12 +400,19 @@ void CodeGen::CFopt(Function* func){
             if(cfg[bb].size()==1)cfg[bb].pop_back();
             stack.push_back(cfg.get_jump_bb(bb));
         }
-        output.insert(output.end(), cfg[bb].begin(),cfg[bb].end());
+        func_body->insert(func_body->end(), cfg[bb].begin(),cfg[bb].end());
     }
+    if(!(memory_used||call_used)&&func_body->size()<=10)short_func[cur_func]=func_body;
+    if(!(memory_used||call_used)&&func_body->size()<=10)inline_func[cur_func]=std::make_shared<InlineFunc>(cur_func);
+    if(memory_used||call_used)output.insert(output.end(), func_entry.begin(), func_entry.end());
+    output.insert(output.end(), func_body->begin(), func_body->end());
     if(memory_used||call_used)output.insert(output.end(), func_exit.begin(), func_exit.end());
 }
 inline void CodeGen::gen_code(string assem){
     cfg.push_back(assem, cur_bb);
+}
+inline void CodeGen::gen_code(vector<string>& assem){
+    cfg.insert(assem, cur_bb);
 }
 inline void func_init(Function& func){
     OffsetDesc.clear();
@@ -340,7 +470,6 @@ void CodeGen::run() {
             output.push_back(".globl " + func.get_name());
             output.push_back(".type " + func.get_name() + ", @function");
             output.push_back(func.get_name() + ":");
-            int pos = output.size();// record the location of the following instruction
             func_entry.push_back("addi.d $sp, $sp, ");
             func_entry.push_back("st.d $ra, $sp, ");
             func_entry.push_back("st.d $fp, $sp, ");
@@ -770,6 +899,15 @@ void CodeGen::phi_assembly(Instruction* instr){
 void CodeGen::call_assembly(Instruction* instr){
     // first store the value of temporary registers and arguments registers
     call_used = true;
+    if(inline_func.find(instr->get_operand(0))!=inline_func.end()){
+        vector<Value*> real_args;
+        for(unsigned int i=1;i<=instr->get_num_operand();i++)real_args.push_back(instr->get_operand(i));
+        std::shared_ptr<InlineFunc> in_func = inline_func[instr->get_operand(0)];
+        if(in_func->run(real_args)){
+            gen_code(in_func->gen_inline_code());
+            return;
+        }
+    }
     for(int i=4;i<=20;i++){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
             offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();

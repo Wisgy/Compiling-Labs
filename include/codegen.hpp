@@ -85,6 +85,7 @@ class CodeGen {
 
     void CFopt(Function* func);
     void gen_code(string assem);
+    void gen_code(vector<string>& assem);
 
   private:
     Module *m;
@@ -111,7 +112,6 @@ Reg* LinearScanFR();
 Reg* RandomReg();
 Reg* RandomFReg();
 void UpdateReg(Reg*, Value* val);
-
 
 
 
