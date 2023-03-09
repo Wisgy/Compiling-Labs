@@ -20,6 +20,8 @@ Instruction *point;
 std::set<Reg*> locked_regs;
 int next_reg=0;
 int next_freg=0;
+// preprocess regs alloca
+bool preprocessing;
 //Address Descriptor
 std::map<BasicBlock*, std::map<Value*, Reg*>> RegDesc;
 std::map<Value*, int> OffsetDesc;
@@ -95,7 +97,8 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
         OffsetDesc[inst]=off;
     }
     inline void SetReg(Value* inst, Reg* reg, BasicBlock* bb=cur_bb){// update the position of inst's reg
-        RegDesc[bb][inst]=reg;
+        if(reg)RegDesc[bb][inst]=reg;
+        else RegDesc[bb].erase(inst);
     }
     inline bool is_in_reg(Value* inst, BasicBlock* bb=cur_bb){// determine whether inst has its own address descriptor
         return RegDesc[bb].find(inst)!=RegDesc[bb].end()&&RegDesc[bb][inst]!=nullptr;
@@ -334,7 +337,8 @@ class CFG{
         CFG() = default;
         BasicBlock* jump_end_bb(BasicBlock* bb){
             if(bb2code[bb].size()!=2)return bb;
-            else return jump_end_bb(jump_bb[bb]);
+            else if(jump_bb[bb])return jump_end_bb(jump_bb[bb]);
+            else return bb;
         }
         void push_back(string code, BasicBlock* bb) { bb2code[bb].push_back(code); }
         void insert(vector<string>& codes, BasicBlock* bb){ bb2code[bb].insert(bb2code[bb].end(), codes.begin(), codes.end());}
@@ -342,11 +346,13 @@ class CFG{
         BasicBlock* get_cj_bb(BasicBlock* bb) { return cj_bb.find(bb)!=cj_bb.end()?cj_bb[bb]:nullptr;}
         void clear() {bb2code.clear();cj_bb.clear();jump_bb.clear();}
         void set_jump_bb(BasicBlock* next_bb, BasicBlock* bb = cur_bb){
+            if(preprocessing)return;
             assert(next_bb&&jump_bb.find(bb)==jump_bb.end());
             jump_bb[bb] = next_bb;
         }
         void new_jump_bb(BasicBlock* next_bb, BasicBlock* bb) { jump_bb[bb] = next_bb; }
         void set_cj_bb(BasicBlock* next_bb, BasicBlock* bb = cur_bb){
+            if(preprocessing)return;
             assert(next_bb&&cj_bb.find(bb)==cj_bb.end());
             cj_bb[bb] = next_bb;
         }
@@ -410,18 +416,112 @@ void CodeGen::CFopt(Function* func){
     output.insert(output.end(), func_body->begin(), func_body->end());
     if(memory_used||call_used)output.insert(output.end(), func_exit.begin(), func_exit.end());
 }
+// Inter-block spanning optimization
+std::map<BasicBlock*, std::map<Value*, Reg*>> InitRegDesc;
+void CodeGen::join(BasicBlock* dest_bb,BasicBlock* pre_bb1, BasicBlock* pre_bb2){
+    for(auto [key, val] : RegDesc[pre_bb1]){
+        if(RegDesc[pre_bb2].find(key)!=RegDesc[pre_bb2].end()&&RegDesc[pre_bb2][key]==val)
+            InitRegDesc[dest_bb][key]=val;
+    }
+}
+void CodeGen::RegDescUpdate(Function* func){
+    preprocessing = true;
+    for(auto& bb : func->get_basic_blocks())visit(&bb);
+    preprocessing = false;
+}
+void CodeGen::RegFlowAnalysis(Function* func){
+    InitRegDesc.clear();
+    ActiveVars(func);
+    bool changed = true;
+    while(changed){
+        changed = false;
+        //initialize
+        OffsetDesc.clear();
+        RegDesc.clear();
+        offset = -16;
+        LoadArgs(func);
+        cur_func = func;
+        // update RegDesc
+        RegDescUpdate(func);
+        for(auto& BB:func->get_basic_blocks()){
+            BasicBlock* bb = &BB;
+            std::map<Value*, Reg*> tmpRegDesc = InitRegDesc[bb];
+            if(bb!=func->get_entry_block())InitRegDesc[bb].clear();
+            size_t pre_bb_num = bb->get_pre_basic_blocks().size();
+            if(pre_bb_num == 0) continue;
+            else if(pre_bb_num == 1){
+                auto suc_bb = *bb->get_pre_basic_blocks().begin();
+                InitRegDesc[bb] = RegDesc[suc_bb];
+            }
+            else if(pre_bb_num == 2){
+                auto iter = bb->get_pre_basic_blocks().begin();
+                auto pre_bb1 = *iter;
+                iter++;
+                auto pre_bb2 = *iter;
+                join(bb, pre_bb1, pre_bb2);
+            }
+            else assert(false);
+            if(tmpRegDesc != InitRegDesc[bb])changed = true;
+        }
+    }
+}
+bool CodeGen::is_inerited(Value* val, BasicBlock* bb){
+    for(auto suc_bb : bb->get_succ_basic_blocks()){
+        if(InitRegDesc[suc_bb].find(val)==InitRegDesc[suc_bb].end())return false;
+    }
+    return true;
+}
+
+int CodeGen::LoadArgs(Function* func){
+    int i, f, off;
+    i=f=off=0;
+    for(auto& arg : func->get_args()){
+        cur_bb=func->get_entry_block();
+        if(arg->get_type()->is_integer_type()){
+            if(i<8){
+                InitRegDesc[cur_bb][arg] = &R[i+4];
+                R[(i++)+4].value = arg;
+            }
+            else {
+                SetOff(arg, off);
+                off += arg->get_type()->get_size();
+            }
+        }
+        else if(arg->get_type()->is_float_type()){
+            if(f<8){
+                InitRegDesc[cur_bb][arg] = &FR[f];
+                FR[f++].value = arg;
+            }
+            else {
+                SetOff(arg, off);
+                off += arg->get_type()->get_size();
+            }
+        }
+        else if(arg->get_type()->is_pointer_type()){
+            if(i<8){
+                InitRegDesc[cur_bb][arg] = &R[i+4];
+                R[(i++)+4].value = arg;
+            }
+            else {
+                SetOff(arg, off);
+                off += arg->get_type()->get_size();
+            }
+        }
+        else assert(false);
+    }
+}
 inline void CodeGen::gen_code(string assem){
-    cfg.push_back(assem, cur_bb);
+    if(!preprocessing)cfg.push_back(assem, cur_bb);
 }
 inline void CodeGen::gen_code(vector<string>& assem){
-    cfg.insert(assem, cur_bb);
+    if(!preprocessing)cfg.insert(assem, cur_bb);
 }
-inline void func_init(Function& func){
+inline void func_init(Function* func){
     OffsetDesc.clear();
     RegDesc.clear();
     cfg.clear();
-    ActiveVars(&func);
-    cur_func = &func;
+    ActiveVars(func);
+    cur_func = func;
     offset = -16;
     max_arg_size = 0;
     memory_used = false;
@@ -438,36 +538,12 @@ void CodeGen::run() {
     }
     for (auto &func : m->get_functions())
         if (not func.is_declaration()) {
+            // preanalysis of register using
+            RegFlowAnalysis(&func);
             // initialize
-            func_init(func);
-            // arguments
-            int i,f,off;
-            i=f=off=0;
-            for(auto& arg : func.get_args()){
-                cur_bb=func.get_entry_block();
-                if(arg->get_type()->is_integer_type()){
-                    if(i<8)UpdateReg(&R[(i++)+4], arg);
-                    else {
-                        SetOff(arg, off);
-                        off += arg->get_type()->get_size();
-                    }
-                }
-                else if(arg->get_type()->is_float_type()){
-                    if(f<8)UpdateReg(&FR[f++], arg);
-                    else {
-                        SetOff(arg, off);
-                        off += arg->get_type()->get_size();
-                    }
-                }
-                else if(arg->get_type()->is_pointer_type()){
-                    if(i<8)UpdateReg(&R[(i++)+4], arg);
-                    else {
-                        SetOff(arg, off);
-                        off += arg->get_type()->get_size();
-                    }
-                }
-                else assert(false);
-            }
+            func_init(&func);
+            // load arguments
+            int off = LoadArgs(&func);
             // entry
             output.push_back(".globl " + func.get_name());
             output.push_back(".type " + func.get_name() + ", @function");
@@ -503,6 +579,11 @@ void CodeGen::run() {
 
 void CodeGen::visit(BasicBlock* bb){
     cur_bb = bb;
+    //load RegDesc
+    for(int i=0;i<32;i++)R[i].value = nullptr;
+    for(int i=0;i<24;i++)FR[i].value = nullptr;
+    for(auto [key, val] : InitRegDesc[bb])val->value = key;
+    RegDesc[bb]=InitRegDesc[bb];
     gen_code("." + cur_func->get_name() + "_" + bb->get_name() + ":");
     for(auto& instr : bb->get_instructions()){
         point = &instr;
@@ -533,8 +614,6 @@ void CodeGen::visit(BasicBlock* bb){
                 assert(true);
         }
     }
-    for(int i=4;i<=20;i++)UpdateReg(&R[i], nullptr);
-    for(int i=0;i<=23;i++)UpdateReg(&FR[i], nullptr);
 }
 void CodeGen::bb_end_store(BasicBlock* bb){
     // phi
@@ -564,7 +643,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
     }
     // integer register
     for(int i=4;i<=20;i++){
-        if(is_active(R[i].value, bb)){
+        if(is_active(R[i].value, bb)&&!is_inerited(R[i].value, bb)){
             int off;
             if(is_stored(R[i].value))
                 off = CurOff(R[i].value);
@@ -576,11 +655,10 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             else gen_code("st.d " + R[i].print() + ", $fp, " + std::to_string(off));
             SetOff(R[i].value, off);
         }
-       UpdateReg(&R[i], nullptr);
     }
     // float register
     for(int i=0;i<=23;i++){
-        if(is_active(FR[i].value, bb)){
+        if(is_active(FR[i].value, bb)&&!is_inerited(FR[i].value, bb)){
             int off;
             if(is_stored(FR[i].value))
                 off = CurOff(FR[i].value);
@@ -591,7 +669,6 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             gen_code("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
             SetOff(FR[i].value, off);
         }
-        UpdateReg(&FR[i], nullptr);
     }
 }
 void CodeGen::ret_assembly(Instruction* instr){

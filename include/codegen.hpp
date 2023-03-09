@@ -82,10 +82,16 @@ class CodeGen {
     Reg* AllocaTmpReg();
     Reg* AllocaTmpFReg();
     Reg* GetReg(Value* value);
+    int LoadArgs(Function* func);
 
     void CFopt(Function* func);
     void gen_code(string assem);
     void gen_code(vector<string>& assem);
+
+    void join(BasicBlock*,BasicBlock*, BasicBlock*);
+    void RegDescUpdate(Function*);
+    void RegFlowAnalysis(Function*);
+    bool is_inerited(Value* val, BasicBlock* bb);
 
   private:
     Module *m;
