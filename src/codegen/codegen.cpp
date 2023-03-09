@@ -215,11 +215,13 @@ class InlineFunc{
         void set_ival(int val, Value* inst = nullptr){ if(inst)int_map[inst] = val;else int_map[instr] = val; }
         void set_fval(float val, Value* inst = nullptr) { if(inst)float_map[inst] = val; else float_map[instr] = val; }
         int get_const_int_value(Value* ins){
-            if(int_map.find(ins)==int_map.end()){able_opt=false;return 0;}
+            if(dynamic_cast<ConstantInt*>(ins)) return dynamic_cast<ConstantInt*>(ins)->get_value();
+            else if(int_map.find(ins)==int_map.end()){able_opt=false;return 0;}
             return int_map[ins];
         }
         float get_const_fp_value(Value* ins){
-            if(float_map.find(ins)==float_map.end()){able_opt=false;return 0;}
+            if(dynamic_cast<ConstantFP*>(ins)) return dynamic_cast<ConstantFP*>(ins)->get_value();
+            else if(float_map.find(ins)==float_map.end()){able_opt=false;return 0;}
             return float_map[ins];
         }
         vector<string>& gen_inline_code(){return inline_code;}
@@ -268,6 +270,7 @@ class InlineFunc{
                         case CmpInst::LT: set_ival(get_const_int_value(lhs) < get_const_int_value(rhs));break;
                         case CmpInst::LE: set_ival(get_const_int_value(lhs) <= get_const_int_value(rhs));break;
                         }
+                        break;
                     case Instruction::fcmp:
                         switch (dynamic_cast<FCmpInst *>(instr)->get_cmp_op()) {
                         case FCmpInst::EQ: set_ival(get_const_fp_value(lhs) == get_const_fp_value(rhs));break;
@@ -277,6 +280,7 @@ class InlineFunc{
                         case FCmpInst::LT: set_ival(get_const_fp_value(lhs) < get_const_fp_value(rhs));break;
                         case FCmpInst::LE: set_ival(get_const_fp_value(lhs) <= get_const_fp_value(rhs));break;
                         }
+                        break;
                     case Instruction::sitofp: set_fval((float)get_const_int_value(lhs));break;
                     case Instruction::fptosi: set_ival((int)get_const_fp_value(lhs));break;
                     case Instruction::zext: set_ival((int)get_const_int_value(lhs));break;
@@ -411,7 +415,7 @@ void CodeGen::CFopt(Function* func){
         func_body->insert(func_body->end(), cfg[bb].begin(),cfg[bb].end());
     }
     if(!(memory_used||call_used)&&func_body->size()<=10)short_func[cur_func]=func_body;
-    if(!(memory_used||call_used)&&func_body->size()<=10)inline_func[cur_func]=std::make_shared<InlineFunc>(cur_func);
+    if(!(memory_used||call_used))inline_func[cur_func]=std::make_shared<InlineFunc>(cur_func);
     if(memory_used||call_used)output.insert(output.end(), func_entry.begin(), func_entry.end());
     output.insert(output.end(), func_body->begin(), func_body->end());
     if(memory_used||call_used)output.insert(output.end(), func_exit.begin(), func_exit.end());
@@ -980,7 +984,7 @@ void CodeGen::call_assembly(Instruction* instr){
     call_used = true;
     if(inline_func.find(instr->get_operand(0))!=inline_func.end()){
         vector<Value*> real_args;
-        for(unsigned int i=1;i<=instr->get_num_operand();i++)real_args.push_back(instr->get_operand(i));
+        for(unsigned int i=1;i<instr->get_num_operand();i++)real_args.push_back(instr->get_operand(i));
         std::shared_ptr<InlineFunc> in_func = inline_func[instr->get_operand(0)];
         if(in_func->run(real_args)){
             gen_code(in_func->gen_inline_code());
