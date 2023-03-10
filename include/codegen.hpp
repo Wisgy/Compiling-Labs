@@ -92,6 +92,7 @@ class CodeGen {
     void RegDescUpdate(Function*);
     void RegFlowAnalysis(Function*);
     bool is_inerited(Value* val, BasicBlock* bb);
+    void DefineStore(Value*, Reg*);
 
   private:
     Module *m;

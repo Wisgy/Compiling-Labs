@@ -443,6 +443,7 @@ void CodeGen::RegFlowAnalysis(Function* func){
         OffsetDesc.clear();
         RegDesc.clear();
         offset = -16;
+        max_arg_size = 0;
         LoadArgs(func);
         cur_func = func;
         // update RegDesc
@@ -475,7 +476,13 @@ bool CodeGen::is_inerited(Value* val, BasicBlock* bb){
     }
     return true;
 }
-
+inline void CodeGen::DefineStore(Value* val, Reg* reg){
+    if(OffsetDesc.find(val)!=OffsetDesc.end())
+        if(val->get_type()->is_float_type())
+            gen_code("fst.s " + reg->print() + ", $fp, " + std::to_string(OffsetDesc[val]));
+        else
+            gen_code("st.w " + reg->print() + ", $fp, " + std::to_string(OffsetDesc[val]));
+}
 int CodeGen::LoadArgs(Function* func){
     int i, f, off;
     i=f=off=0;
@@ -483,6 +490,7 @@ int CodeGen::LoadArgs(Function* func){
         cur_bb=func->get_entry_block();
         if(arg->get_type()->is_integer_type()){
             if(i<8){
+                DefineStore(arg, &R[i+4]);
                 InitRegDesc[cur_bb][arg] = &R[i+4];
                 R[(i++)+4].value = arg;
             }
@@ -493,6 +501,7 @@ int CodeGen::LoadArgs(Function* func){
         }
         else if(arg->get_type()->is_float_type()){
             if(f<8){
+                DefineStore(arg, &FR[f]);
                 InitRegDesc[cur_bb][arg] = &FR[f];
                 FR[f++].value = arg;
             }
@@ -503,6 +512,7 @@ int CodeGen::LoadArgs(Function* func){
         }
         else if(arg->get_type()->is_pointer_type()){
             if(i<8){
+                DefineStore(arg, &R[i+4]);
                 InitRegDesc[cur_bb][arg] = &R[i+4];
                 R[(i++)+4].value = arg;
             }
@@ -521,10 +531,10 @@ inline void CodeGen::gen_code(vector<string>& assem){
     if(!preprocessing)cfg.insert(assem, cur_bb);
 }
 inline void func_init(Function* func){
-    OffsetDesc.clear();
+    // OffsetDesc.clear();
     RegDesc.clear();
     cfg.clear();
-    ActiveVars(func);
+    // ActiveVars(func);
     cur_func = func;
     offset = -16;
     max_arg_size = 0;
@@ -542,8 +552,12 @@ void CodeGen::run() {
     }
     for (auto &func : m->get_functions())
         if (not func.is_declaration()) {
-            // preanalysis of register using
+            // preanalysis of register using and memory using
             RegFlowAnalysis(&func);
+            // calculate the memory used by the function
+            offset -= max_arg_size;
+            int bytes = -offset + (offset%16?16+offset%16:0);
+            if(bytes!=16)memory_used = true;
             // initialize
             func_init(&func);
             // load arguments
@@ -552,23 +566,19 @@ void CodeGen::run() {
             output.push_back(".globl " + func.get_name());
             output.push_back(".type " + func.get_name() + ", @function");
             output.push_back(func.get_name() + ":");
-            func_entry.push_back("addi.d $sp, $sp, ");
-            func_entry.push_back("st.d $ra, $sp, ");
-            func_entry.push_back("st.d $fp, $sp, ");
-            func_entry.push_back("addi.d $fp, $sp, ");
+            // revise the beginning instructions 
+            // func_entry[0] = func_entry[0] + std::to_string(-bytes);
+            // func_entry[1] = func_entry[1] + std::to_string(bytes-8);
+            // func_entry[2] = func_entry[2] + std::to_string(bytes-16);
+            // func_entry[3] = func_entry[3] + std::to_string(bytes);
+            func_entry.push_back("addi.d $sp, $sp, " + std::to_string(-bytes));
+            func_entry.push_back("st.d $ra, $sp, " + std::to_string(bytes-8));
+            func_entry.push_back("st.d $fp, $sp, " + std::to_string(bytes-16));
+            func_entry.push_back("addi.d $fp, $sp, " + std::to_string(bytes));
             // body
             for(auto& bb : func.get_basic_blocks()){
                 visit(&bb);
             }
-            // calculate the memory used by the function
-            offset -= max_arg_size;
-            int bytes = -offset + (offset%16?16+offset%16:0);
-            if(bytes!=16)memory_used = true;
-            // revise the beginning instructions 
-            func_entry[0] = func_entry[0] + std::to_string(-bytes);
-            func_entry[1] = func_entry[1] + std::to_string(bytes-8);
-            func_entry[2] = func_entry[2] + std::to_string(bytes-16);
-            func_entry[3] = func_entry[3] + std::to_string(bytes);
             // return
             func_exit.push_back("." + func.get_name() +"_return :");
             func_exit.push_back("ld.d $ra, $sp, " + std::to_string(bytes-8));
@@ -765,6 +775,7 @@ void CodeGen::binary_assembly(Instruction* instr){
     auto res = AllocaReg(instr);
     gen_code(assem_inst + " " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
     UpdateReg(res, instr);
+    DefineStore(instr, res);
 }
 void CodeGen::alloca_assembly(Instruction* instr){
     //根据申请空间的大小计算偏移值
@@ -797,6 +808,7 @@ void CodeGen::load_assembly(Instruction* instr){
         gen_code(inst_head + reg->print() + inst_tail);
     }
     UpdateReg(reg, instr);
+    DefineStore(instr, reg);
 }
 void CodeGen::store_assembly(Instruction* instr){
     Value* data = instr->get_operand(0);
@@ -907,6 +919,7 @@ void CodeGen::cmp_assembly(Instruction* instr, Instruction* refer){
                               break;
         }
         UpdateReg(res, instr);
+        DefineStore(instr, res);
     }
     else assert(false);
 }
@@ -964,6 +977,7 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
         gen_code("addi.w " + reg->print() + ", $zero" + ", 0");
         gen_code(br + ":");
         UpdateReg(reg, instr);
+        DefineStore(instr, reg);
     }
     else assert(false);
 }
@@ -1040,8 +1054,14 @@ void CodeGen::call_assembly(Instruction* instr){
     // fourth mark the value of registers as null
     for(int i=4;i<=20;i++)UpdateReg(&R[i], nullptr);
     for(int i=0;i<=23;i++)UpdateReg(&FR[i], nullptr);
-    if(instr->get_type()->is_integer_type())UpdateReg(&R[4], instr);
-    else if(instr->get_type()->is_float_type())UpdateReg(&FR[0], instr);
+    if(instr->get_type()->is_integer_type()){
+        UpdateReg(&R[4], instr);
+        DefineStore(instr, &R[4]);
+    }
+    else if(instr->get_type()->is_float_type()){
+        UpdateReg(&FR[0], instr);
+        DefineStore(instr, &FR[0]);
+    }
 }
 void CodeGen::getelementptr_assembly(Instruction* instr){
     Value* pt = instr->get_operand(0);
@@ -1105,6 +1125,7 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
                 gen_code("add.d " + addr->print() + ", " + reg->print() + ", " + index_reg->print());
             }
             UpdateReg(addr, instr);
+            DefineStore(instr, addr);
         }
     }
 }
@@ -1128,6 +1149,7 @@ void CodeGen::zext_assembly(Instruction* instr){
     auto res = AllocaReg(instr);
     gen_code("or " + res->print() + ", " + reg->print() + ", $zero");
     UpdateReg(res, instr);
+    DefineStore(instr, res);
 }
 void CodeGen::fptosi_assembly(Instruction* instr){
     auto val = instr->get_operand(0);
@@ -1137,6 +1159,7 @@ void CodeGen::fptosi_assembly(Instruction* instr){
     gen_code("ftint.w.s " + reg->print() + ", " + reg->print());
     gen_code("movfr2gr.s " + res->print() + ", " + reg->print());
     UpdateReg(res, instr);
+    DefineStore(instr, res);
 }
 void CodeGen::sitofp_assembly(Instruction* instr){
     auto val = instr->get_operand(0);
@@ -1145,6 +1168,7 @@ void CodeGen::sitofp_assembly(Instruction* instr){
     gen_code("movgr2fr.w " + res->print() + ", " + reg->print());
     gen_code("ffint.s.w " + res->print() + ", " + res->print());
     UpdateReg(res, instr);
+    DefineStore(instr, res);
 }
 Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
     if(is_in_reg(v)) {// 如果寄存器存在此变量的值
