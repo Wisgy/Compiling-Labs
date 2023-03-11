@@ -97,7 +97,6 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
         return RegDesc[bb][inst];
     }
     inline void SetOff(Value* inst, int off){// set the memory offset of inst
-        stored[inst]=true;
         OffsetDesc[inst]=off;
     }
     inline void SetReg(Value* inst, Reg* reg, BasicBlock* bb=cur_bb){// update the position of inst's reg
@@ -699,6 +698,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                     else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
                         reg = GetReg(inst.get_operand(2));
                     else assert(false);
+                    stored[&inst]=true;
                     gen_code(head + reg->print() + ", $fp, " + std::to_string(off));
                     UpdateReg(reg, &inst);
                 }
@@ -711,7 +711,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
         if(is_active(R[i].value, bb)&&!is_inerited(R[i].value, bb)){
             int off;
             if(is_stored(R[i].value))
-                off = CurOff(R[i].value);
+                continue;
             else{
                 offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
                 off = offset;
@@ -726,7 +726,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
         if(is_active(FR[i].value, bb)&&!is_inerited(FR[i].value, bb)){
             int off;
             if(is_stored(FR[i].value))
-                off = CurOff(FR[i].value);
+                continue;
             else{
                 offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
                 off = offset;
@@ -1194,7 +1194,7 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
         if(type->is_array_type()){
             if(dynamic_cast<ConstantInt*>(instr->get_operand(2))){
                 int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(2))->get_value();
-                int elem_size = pt->get_type()->get_pointer_element_type()->get_size();
+                int elem_size = type->get_array_element_type()->get_size();
                 int off = LocalOff[pt] + elem_off*elem_size;
                 LocalOff[instr] = off;
             }
