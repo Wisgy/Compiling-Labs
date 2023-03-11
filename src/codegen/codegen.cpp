@@ -748,8 +748,8 @@ void CodeGen::ret_assembly(Instruction* instr){
 }
 void CodeGen::br_assembly(Instruction* instr){
     if(dynamic_cast<BranchInst*>(instr)->is_cond_br()){
-        if(dynamic_cast<Constant*>(instr->get_operand(0))){
-            int flag = dynamic_cast<ConstantInt*>(instr->get_operand(0))->get_value();
+        if(is_const(instr->get_operand(0))){
+            int flag = get_ival(instr->get_operand(0));
             string br1_name = "." + cur_func->get_name() + "_" + instr->get_operand(1)->get_name();
             string br2_name = "." + cur_func->get_name() + "_" + instr->get_operand(2)->get_name();
             if(flag)gen_code("b " + br1_name);
