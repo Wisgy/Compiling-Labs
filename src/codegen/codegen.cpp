@@ -101,7 +101,7 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
         else RegDesc[bb].erase(inst);
     }
     inline bool is_in_reg(Value* inst, BasicBlock* bb=cur_bb){// determine whether inst has its own address descriptor
-        return RegDesc[bb].find(inst)!=RegDesc[bb].end()&&RegDesc[bb][inst]!=nullptr;
+        return RegDesc[bb].find(inst)!=RegDesc[bb].end();
     }
     inline bool is_stored(Value* inst){// determine whether inst has been allocated memory space for 
         return OffsetDesc.find(inst)!=OffsetDesc.end();
@@ -122,16 +122,22 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         use[&bb].clear();
         def[&bb].clear();
         for(auto &instr : bb.get_instructions()){
-            if(!instr.is_alloca()&&!instr.is_void())
+            if(!instr.is_alloca()&&!instr.is_void()&&!instr.is_phi())
                 def[&bb].insert(&instr);
             if(instr.is_phi()){// 对于phi指令要单独处理，否则会导致其中一个前继块出现另一个前继块的的变量
                 auto op1 = instr.get_operand(0);
                 BasicBlock* bb1 = dynamic_cast<BasicBlock*>(instr.get_operand(1));
-                if(!(dynamic_cast<Constant*>(op1)))OUT[bb1].insert(op1);
+                if(!(dynamic_cast<Constant*>(op1))){
+                    OUT[bb1].insert(op1);
+                    OUT[bb1].insert(&instr);    
+                }
                 if(instr.get_num_operand()==4){
                     auto op2 = instr.get_operand(2);
                     BasicBlock* bb2 = dynamic_cast<BasicBlock*>(instr.get_operand(3));
-                    if(!(dynamic_cast<Constant*>(op2)))OUT[bb2].insert(op2);
+                    if(!(dynamic_cast<Constant*>(op2))){
+                        OUT[bb2].insert(op2);
+                        OUT[bb2].insert(&instr);
+                    }
                 }
             }
             for(auto &op : instr.get_operands())
@@ -634,23 +640,19 @@ void CodeGen::bb_end_store(BasicBlock* bb){
     for(auto& suc_bb : bb->get_succ_basic_blocks()){
         for(auto &inst : suc_bb->get_instructions()){
             if(inst.is_phi()){//op3 = phi(op2, op1)则令op12在出口处不活跃对其单独处理，将其值存储在op3的内存位置
-                point = &inst;
-                if(!is_stored(&inst)){
-                    offset -= inst.get_type()->get_size()+offset%inst.get_type()->get_size();
-                    SetOff(&inst, offset);
-                }
-                int off = CurOff(&inst);
                 string head;
-                if(inst.get_type()->is_float_type()) head = "fst.s ";
-                else if(inst.get_type()->is_pointer_type()) head = "st.d ";
-                else head = "st.w ";
+                string tail;
+                if(inst.get_type()->is_float_type()) {head = "fmov.s "; tail = "";}
+                else {head = "or "; tail = ", $zero";}
                 Reg* reg;
                 if(cur_bb == inst.get_operand(1))
                     reg = GetReg(inst.get_operand(0));
                 else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
                     reg = GetReg(inst.get_operand(2));
                 else assert(false);
-                gen_code(head + reg->print() + ", $fp, " + std::to_string(off));
+                auto res = AllocaReg(&inst);
+                gen_code(head + res->print() + ", " + reg->print() + tail);
+                UpdateReg(res, &inst);
             }
             else break;
         }
