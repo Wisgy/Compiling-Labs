@@ -70,6 +70,7 @@ using namespace const_opt;
 //Memory Calculate
 int offset;
 int max_arg_size;
+std::map<Value*, bool> stored;
 //Live Variable Analysis
 std::map<BasicBlock*, set<Value*>> OUT;// active vars at the exit of the basicblocks
 std::map<Value*, set<Value*>> in;
@@ -96,6 +97,7 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
         return RegDesc[bb][inst];
     }
     inline void SetOff(Value* inst, int off){// set the memory offset of inst
+        stored[inst]=true;
         OffsetDesc[inst]=off;
     }
     inline void SetReg(Value* inst, Reg* reg, BasicBlock* bb=cur_bb){// update the position of inst's reg
@@ -105,8 +107,14 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
     inline bool is_in_reg(Value* inst, BasicBlock* bb=cur_bb){// determine whether inst has its own address descriptor
         return RegDesc[bb].find(inst)!=RegDesc[bb].end();
     }
-    inline bool is_stored(Value* inst){// determine whether inst has been allocated memory space for 
+    inline bool HasOff(Value* inst){// determine whether inst has been allocated memory for
         return OffsetDesc.find(inst)!=OffsetDesc.end();
+    }
+    inline bool is_stored(Value* inst){// determine whether inst has been stored in memory 
+        if(preprocessing)
+            return OffsetDesc.find(inst)!=OffsetDesc.end();
+        else
+            return stored[inst];
     }
     inline bool is_used(Value* inst){
         return is_in_reg(inst) || is_stored(inst) || is_const(inst);
@@ -456,6 +464,7 @@ void CodeGen::RegFlowAnalysis(Function* func){
         RegDesc.clear();
         offset = -16;
         max_arg_size = 0;
+        stored.clear();
         LoadArgs(func);
         cur_func = func;
         // update RegDesc
@@ -488,12 +497,19 @@ bool CodeGen::is_inerited(Value* val, BasicBlock* bb){
     }
     return true;
 }
+inline Reg* CodeGen::get_inerited_reg(Value* val, BasicBlock* bb){
+    assert(is_inerited(val, bb));
+    auto suc_bb = *bb->get_succ_basic_blocks().begin();
+    return InitRegDesc[suc_bb][val];
+}
 inline void CodeGen::DefineStore(Value* val, Reg* reg){
-    if(OffsetDesc.find(val)!=OffsetDesc.end())
+    if(OffsetDesc.find(val)!=OffsetDesc.end()&&stored[val]==false){
+        stored[val] = true;
         if(val->get_type()->is_float_type())
             gen_code("fst.s " + reg->print() + ", $fp, " + std::to_string(OffsetDesc[val]));
         else
             gen_code("st.w " + reg->print() + ", $fp, " + std::to_string(OffsetDesc[val]));
+    }
 }
 int CodeGen::LoadArgs(Function* func){
     int i, f, off;
@@ -550,6 +566,7 @@ inline void func_init(Function* func){
     cur_func = func;
     offset = -16;
     max_arg_size = 0;
+    stored.clear();
     memory_used = false;
     call_used = false;
     func_entry.clear();
@@ -647,7 +664,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
         for(auto &inst : suc_bb->get_instructions()){
             if(inst.is_phi()){//op3 = phi(op2, op1)则令op12在出口处不活跃对其单独处理，将其值存储在op3的内存位置
                 if(is_in_reg(&inst))UpdateReg(CurReg(&inst), nullptr);
-                if(is_inerited(&inst, bb)){
+                if(is_inerited(&inst, bb)&&false){
                     string head;
                     string tail;
                     if(inst.get_type()->is_float_type()) {head = "fmov.s "; tail = "";}
@@ -658,9 +675,12 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                     else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
                         reg = GetReg(inst.get_operand(2));
                     else assert(false);
-                    auto res = AllocaReg(&inst);
-                    gen_code(head + res->print() + ", " + reg->print() + tail);
-                    UpdateReg(res, &inst);
+                    if(get_inerited_reg(&inst, bb)!=reg){
+                        auto res = AllocaReg(&inst);
+                        gen_code(head + res->print() + ", " + reg->print() + tail);
+                        UpdateReg(res, &inst);
+                    }
+                    else UpdateReg(reg, &inst);
                 }
                 else {
                     point = &inst;
@@ -680,6 +700,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                         reg = GetReg(inst.get_operand(2));
                     else assert(false);
                     gen_code(head + reg->print() + ", $fp, " + std::to_string(off));
+                    UpdateReg(reg, &inst);
                 }
             }
             else break;
@@ -1072,16 +1093,24 @@ void CodeGen::call_assembly(Instruction* instr){
     }
     for(int i=4;i<=20;i++){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
-            offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
-            SetOff(R[i].value, offset);
-            gen_code("st.w " + R[i].print() + ", $fp, " + std::to_string(offset));
+            int off;
+            if(!HasOff(R[i].value))
+                off = offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
+            else off = CurOff(R[i].value);
+            SetOff(R[i].value, off);
+            stored[R[i].value] = true;
+            gen_code("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
         }
     }
     for(int i=0;i<=23;i++){
         if(is_active_out(FR[i].value, instr)&&!is_stored(FR[i].value)){
-            offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
-            SetOff(FR[i].value, offset);
-            gen_code("fst.s " + FR[i].print() + ", $fp, " + std::to_string(offset));
+            int off;
+            if(!HasOff(R[i].value))
+                off = offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
+            else off = CurOff(R[i].value);
+            SetOff(FR[i].value, off);
+            stored[R[i].value] = true;
+            gen_code("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
         }
     }
     // second load the arguments (if the number of arguments is more than 8)store the extra arguments in the memory
