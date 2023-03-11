@@ -124,25 +124,29 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         for(auto &instr : bb.get_instructions()){
             if(!instr.is_alloca()&&!instr.is_void()&&!instr.is_phi())
                 def[&bb].insert(&instr);
-            if(instr.is_phi()){// 对于phi指令要单独处理，否则会导致其中一个前继块出现另一个前继块的的变量
+            for(auto &op : instr.get_operands())
+                if(!(dynamic_cast<GlobalVariable*>(op)||dynamic_cast<Constant*>(op)||dynamic_cast<AllocaInst*>(op)||dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)||instr.is_phi()))
+                    use[&bb].insert(op);
+        }
+    }
+    for(auto &bb : func->get_basic_blocks()){// 对于phi指令要单独处理，使得phi指令在前继块中定义
+        for(auto &instr : bb.get_instructions()){
+            if(instr.is_phi()){
                 auto op1 = instr.get_operand(0);
                 BasicBlock* bb1 = dynamic_cast<BasicBlock*>(instr.get_operand(1));
                 if(!(dynamic_cast<Constant*>(op1))){
                     OUT[bb1].insert(op1);
-                    OUT[bb1].insert(&instr);    
+                    if(use[bb1].find(&instr)==use[bb1].end())def[bb1].insert(&instr);//这种情况下可能出现定义前使用，此时phi指令不设置为前继块中定义
                 }
                 if(instr.get_num_operand()==4){
                     auto op2 = instr.get_operand(2);
                     BasicBlock* bb2 = dynamic_cast<BasicBlock*>(instr.get_operand(3));
                     if(!(dynamic_cast<Constant*>(op2))){
                         OUT[bb2].insert(op2);
-                        OUT[bb2].insert(&instr);
+                        if(use[bb2].find(&instr)==use[bb2].end())def[bb2].insert(&instr);
                     }
                 }
             }
-            for(auto &op : instr.get_operands())
-                if(!(dynamic_cast<GlobalVariable*>(op)||dynamic_cast<Constant*>(op)||dynamic_cast<AllocaInst*>(op)||dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)||instr.is_phi()))
-                    use[&bb].insert(op);
         }
     }
     // IN,OUT
@@ -1112,12 +1116,13 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
             }
             else{
                 auto index_reg = GetReg(instr->get_operand(2));
+                auto off_reg = AllocaReg(instr);
                 addr = AllocaReg(instr);
                 int elem_size = type->get_array_element_type()->get_size();
-                gen_code("slli.d " + index_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
+                gen_code("slli.d " + off_reg->print() + ", " + index_reg->print() + ", " + std::to_string((int)(log2(elem_size))));
                 gen_code("addi.d " + addr->print() + ", $fp, " + std::to_string(LocalOff[pt]));
-                gen_code("add.d " + addr->print() + ", " + addr->print() + ", " + index_reg->print());
-                UpdateReg(index_reg, nullptr);
+                gen_code("add.d " + addr->print() + ", " + addr->print() + ", " + off_reg->print());
+                UpdateReg(off_reg, nullptr);
                 UpdateReg(addr, instr);
             }
         }
