@@ -644,19 +644,41 @@ void CodeGen::bb_end_store(BasicBlock* bb){
     for(auto& suc_bb : bb->get_succ_basic_blocks()){
         for(auto &inst : suc_bb->get_instructions()){
             if(inst.is_phi()){//op3 = phi(op2, op1)则令op12在出口处不活跃对其单独处理，将其值存储在op3的内存位置
-                string head;
-                string tail;
-                if(inst.get_type()->is_float_type()) {head = "fmov.s "; tail = "";}
-                else {head = "or "; tail = ", $zero";}
-                Reg* reg;
-                if(cur_bb == inst.get_operand(1))
-                    reg = GetReg(inst.get_operand(0));
-                else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
-                    reg = GetReg(inst.get_operand(2));
-                else assert(false);
-                auto res = AllocaReg(&inst);
-                gen_code(head + res->print() + ", " + reg->print() + tail);
-                UpdateReg(res, &inst);
+                if(is_in_reg(&inst))UpdateReg(CurReg(&inst), nullptr);
+                if(is_inerited(&inst, bb)){
+                    string head;
+                    string tail;
+                    if(inst.get_type()->is_float_type()) {head = "fmov.s "; tail = "";}
+                    else {head = "or "; tail = ", $zero";}
+                    Reg* reg;
+                    if(cur_bb == inst.get_operand(1))
+                        reg = GetReg(inst.get_operand(0));
+                    else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
+                        reg = GetReg(inst.get_operand(2));
+                    else assert(false);
+                    auto res = AllocaReg(&inst);
+                    gen_code(head + res->print() + ", " + reg->print() + tail);
+                    UpdateReg(res, &inst);
+                }
+                else {
+                    point = &inst;
+                    if(!is_stored(&inst)){
+                        offset -= inst.get_type()->get_size()+offset%inst.get_type()->get_size();
+                        SetOff(&inst, offset);
+                    }
+                    int off = CurOff(&inst);
+                    string head;
+                    if(inst.get_type()->is_float_type()) head = "fst.s ";
+                    else if(inst.get_type()->is_pointer_type()) head = "st.d ";
+                    else head = "st.w ";
+                    Reg* reg;
+                    if(cur_bb == inst.get_operand(1))
+                        reg = GetReg(inst.get_operand(0));
+                    else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
+                        reg = GetReg(inst.get_operand(2));
+                    else assert(false);
+                    gen_code(head + reg->print() + ", $fp, " + std::to_string(off));
+                }
             }
             else break;
         }
