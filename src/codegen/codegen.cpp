@@ -44,10 +44,12 @@ namespace const_opt{
         return false;
     }
     inline bool is_integer(Value * inst){
-        return inst2int.find(inst) != inst2int.end();
+        if(is_const(inst)) return inst2int.find(inst) != inst2int.end();
+        else return false;
     }
     inline bool is_float(Value* inst){
-        return inst2float.find(inst) != inst2float.end();
+        if(is_const(inst)) return inst2float.find(inst) != inst2float.end();
+        else return false;
     }
     inline int get_ival(Value* inst){
         assert(inst2int.find(inst)!=inst2int.end());
@@ -770,6 +772,7 @@ void CodeGen::br_assembly(Instruction* instr){
 void CodeGen::binary_assembly(Instruction* instr){
     auto lhs = instr->get_operand(0);
     auto rhs = instr->get_operand(1);
+    // const opt
     if(const_optim_flag&&is_const(lhs)&&is_const(rhs)){
         switch(instr->get_instr_type()){
             case Instruction::add: set_ival(instr, get_ival(lhs)+get_ival(rhs)); break;
@@ -783,6 +786,36 @@ void CodeGen::binary_assembly(Instruction* instr){
             default:
                 assert(false);
         }
+        return;
+    }
+    // strength reduction
+    if((is_integer(lhs)||is_integer(rhs))&&(instr->is_add()||instr->is_sub())&&(get_ival(rhs)<2048&&get_ival(rhs)>-2048)){
+        Reg *reg, *res;
+        Value* var_oper = is_integer(lhs)?rhs:lhs;
+        Value* const_oper = is_integer(lhs)?lhs:rhs;
+        int imm = instr->is_add()?get_ival(const_oper):-get_ival(const_oper);
+        reg = GetReg(var_oper);
+        res = AllocaReg(instr);
+        gen_code("addi.w " + res->print() + ", " + reg->print() + ", " + std::to_string(imm));
+        UpdateReg(res, instr);
+        DefineStore(instr, res);
+        return;
+    }
+    if((is_integer(rhs))&&(instr->is_mul()&&instr->is_div())&&(int)log2(get_ival(rhs))==log2(get_ival(rhs))){
+        auto reg = GetReg(lhs);
+        auto res = AllocaReg(instr);
+        string head = instr->is_mul()?"slli.w ":"srli.w ";
+        gen_code(head + res->print() + ", " + reg->print() + ", " + std::to_string((int)(log2(get_ival(rhs)))));
+        UpdateReg(res, instr);
+        DefineStore(instr, res);
+        return;
+    }
+    if(is_integer(lhs)&&instr->is_mul()&&(int)log2(get_ival(rhs))==log2(get_ival(rhs))){
+        auto reg = GetReg(rhs);
+        auto res = AllocaReg(instr);
+        gen_code("slli.w " + res->print() + ", " + reg->print() + ", " + std::to_string((int)(log2(get_ival(lhs)))));
+        UpdateReg(res, instr);
+        DefineStore(instr, res);
         return;
     }
     auto l_reg = GetReg(lhs);
