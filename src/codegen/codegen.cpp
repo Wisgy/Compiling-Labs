@@ -183,16 +183,16 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
         for(auto op : cur_inst->get_operands())if(!(dynamic_cast<BasicBlock*>(op)||dynamic_cast<Function*>(op)||dynamic_cast<Constant*>(op)))in[cur_inst].insert(op);
     }
     // delete the active phi var at the exit of bb blocks
-    // for(auto &bb : func->get_basic_blocks()){
-    //     for(auto &suc_bb : bb.get_succ_basic_blocks()){
-    //         for(auto &inst : suc_bb->get_instructions()){
-    //             if(inst.is_phi())
-    //                 for(auto &op : inst.get_operands())
-    //                     OUT[&bb].erase(op);
-    //             else break;
-    //         }
-    //     }
-    // }
+    for(auto &bb : func->get_basic_blocks()){
+        for(auto &suc_bb : bb.get_succ_basic_blocks()){
+            for(auto &inst : suc_bb->get_instructions()){
+                if(inst.is_phi())
+                    for(auto &op : inst.get_operands())
+                        OUT[&bb].erase(op);
+                else break;
+            }
+        }
+    }
     // for(auto &bb : func->get_basic_blocks()){
     //     std::cout<<bb.get_name()<<std::endl;
     //     for(auto &ins : bb.get_instructions()){
@@ -982,6 +982,7 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
     else assert(false);
 }
 void CodeGen::phi_assembly(Instruction* instr){
+    if(is_in_reg(instr))return;
     auto reg = AllocaReg(instr);
     int off = CurOff(instr);
     assert(off!=-1);
@@ -1029,6 +1030,11 @@ void CodeGen::call_assembly(Instruction* instr){
         if(arg->get_type()->is_float_type())
             if(j++<8){// 寄存器传参
                 auto s_reg = GetReg(arg);
+                if(!is_active_out(FR[j-1].value, instr)&&is_active(FR[j-1].value, instr)&&&FR[j-1]!=s_reg){//the value of the current reg is the argument 
+                    offset -= FR[j-1].value->get_type()->get_size()+offset%FR[j-1].value->get_type()->get_size();
+                    SetOff(FR[j-1].value, offset);
+                    gen_code("fst.s " + FR[j-1].print() + ", $fp, " + std::to_string(offset));
+                }
                 if(&FR[j-1]!=s_reg)
                     gen_code("fmov.s " + FR[j-1].print() + ", " + s_reg->print());
                 UpdateReg(&FR[j-1], arg);
@@ -1039,6 +1045,11 @@ void CodeGen::call_assembly(Instruction* instr){
             }   
         else if(i++<8){// 寄存器传参
                 auto s_reg = GetReg(arg);
+                if(!is_active_out(R[i+3].value, instr)&&is_active(R[i+3].value, instr)&&&R[i+3]!=s_reg){//the value of the current reg is the argument 
+                    offset -= R[i+3].value->get_type()->get_size()+offset%R[i+3].value->get_type()->get_size();
+                    SetOff(R[i+3].value, offset);
+                    gen_code("st.w " + R[i+3].print() + ", $fp, " + std::to_string(offset));
+                }
                 if(&R[i+3]!=s_reg)
                     gen_code("or " + R[i+3].print() + ", " + s_reg->print() + ", $zero");
                 UpdateReg(&R[i+3], arg);
