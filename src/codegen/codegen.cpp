@@ -1281,10 +1281,14 @@ Reg* CodeGen::AllocaTmpFReg(){
 Reg* LinearScanR(){
     for(int i=4;i<=20;i++)
         if(!is_active(R[i].value, point)&&locked_regs.find(&R[i])==locked_regs.end())return &R[i];
+    for(int i=4;i<=20;i++)
+        if(locked_regs.find(&R[i])==locked_regs.end())return &R[i];
 }
 Reg* LinearScanFR(){
     for(int i=0;i<=23;i++)
         if(!is_active(FR[i].value, point)&&locked_regs.find(&FR[i])==locked_regs.end())return &FR[i];
+    for(int i=0;i<=23;i++)
+        if(locked_regs.find(&FR[i])==locked_regs.end())return &FR[i];
 }
 Reg* RandomReg(){
     next_reg = (next_reg+1)%9;
