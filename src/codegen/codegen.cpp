@@ -94,7 +94,7 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
         return OffsetDesc[inst];
     }
     inline Reg* CurReg(Value* inst, BasicBlock* bb=cur_bb){// acquire the current reg of inst
-        assert(RegDesc[bb].find(inst)!=RegDesc[bb].end());
+        assert(RegDesc[bb].find(inst)!=RegDesc[bb].end()||preprocessing);
         return RegDesc[bb][inst];
     }
     inline void SetOff(Value* inst, int off){// set the memory offset of inst
@@ -1421,7 +1421,7 @@ void UpdateReg(Reg* r, Value* val, bool set_null){
     if (r->id>=23)saved_regs.insert(r);
     if (val) locked_regs.insert(r); 
     if (is_in_reg(val)&&set_null) CurReg(val)->value = nullptr;
-    if (r->value!=nullptr) SetReg(r->value, nullptr);
+    if (r->value!=nullptr&&is_in_reg(r->value)&&r==CurReg(r->value)) SetReg(r->value, nullptr);
     r->value = val;
     if (val) SetReg(val, r);
 }
