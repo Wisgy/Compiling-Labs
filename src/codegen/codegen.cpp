@@ -455,6 +455,7 @@ void CodeGen::RegFlowAnalysis(Function* func){
     InitRegDesc.clear();
     ActiveVars(func);
     bool changed = true;
+    std::set<Reg*> LastSaveRegs;
     while(changed){
         changed = false;
         //initialize
@@ -488,6 +489,8 @@ void CodeGen::RegFlowAnalysis(Function* func){
             // update RegDesc
             RegDescUpdate(bb);
         }
+        if(LastSaveRegs!=saved_regs)changed = true;
+        LastSaveRegs=saved_regs;
     }
 }
 bool CodeGen::is_inerited(Value* val, BasicBlock* bb){
@@ -1418,7 +1421,7 @@ Reg* RandomFReg(){
     return &FR[next_freg+8];
 }
 void UpdateReg(Reg* r, Value* val, bool set_null){
-    if (r->id>=23)saved_regs.insert(r);
+    if (r->id>=23&&!dynamic_cast<FReg*>(r))saved_regs.insert(r);
     if (val) locked_regs.insert(r); 
     if (is_in_reg(val)&&set_null) CurReg(val)->value = nullptr;
     if (r->value!=nullptr&&is_in_reg(r->value)&&r==CurReg(r->value)) SetReg(r->value, nullptr);
