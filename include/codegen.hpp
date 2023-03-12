@@ -32,6 +32,8 @@ class Reg {
             return "$t" + std::to_string(id - 12);
         if (id == 22)
             return "$fp";
+        if (23 <= id and id <= 31)
+            return "$s" + std::to_string(id - 23);
         assert(false);
     }
 };
@@ -89,7 +91,7 @@ class CodeGen {
     void gen_code(vector<string>& assem);
 
     void join(BasicBlock*,BasicBlock*, BasicBlock*);
-    void RegDescUpdate(Function*);
+    void RegDescUpdate(BasicBlock*);
     void RegFlowAnalysis(Function*);
     bool is_inerited(Value* val, BasicBlock* bb);
     Reg* get_inerited_reg(Value* val, BasicBlock* bb);
@@ -119,7 +121,7 @@ Reg* LinearScanR();
 Reg* LinearScanFR();
 Reg* RandomReg();
 Reg* RandomFReg();
-void UpdateReg(Reg*, Value* val);
+void UpdateReg(Reg* r, Value* val, bool set_null = true);
 
 
 

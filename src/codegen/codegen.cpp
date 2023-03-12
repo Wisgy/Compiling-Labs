@@ -18,6 +18,7 @@ BasicBlock *cur_bb;
 Instruction *point;
 // register allocation
 std::set<Reg*> locked_regs;
+std::set<Reg*> saved_regs;
 int next_reg=0;
 int next_freg=0;
 // preprocess regs alloca
@@ -97,7 +98,8 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
         return RegDesc[bb][inst];
     }
     inline void SetOff(Value* inst, int off){// set the memory offset of inst
-        OffsetDesc[inst]=off;
+        if(preprocessing)
+            OffsetDesc[inst]=off;
     }
     inline void SetReg(Value* inst, Reg* reg, BasicBlock* bb=cur_bb){// update the position of inst's reg
         if(reg)RegDesc[bb][inst]=reg;
@@ -105,9 +107,6 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
     }
     inline bool is_in_reg(Value* inst, BasicBlock* bb=cur_bb){// determine whether inst has its own address descriptor
         return RegDesc[bb].find(inst)!=RegDesc[bb].end();
-    }
-    inline bool HasOff(Value* inst){// determine whether inst has been allocated memory for
-        return OffsetDesc.find(inst)!=OffsetDesc.end();
     }
     inline bool is_stored(Value* inst){// determine whether inst has been stored in memory 
         if(preprocessing)
@@ -447,9 +446,9 @@ void CodeGen::join(BasicBlock* dest_bb,BasicBlock* pre_bb1, BasicBlock* pre_bb2)
             InitRegDesc[dest_bb][key]=val;
     }
 }
-void CodeGen::RegDescUpdate(Function* func){
+void CodeGen::RegDescUpdate(BasicBlock* bb){
     preprocessing = true;
-    for(auto& bb : func->get_basic_blocks())visit(&bb);
+    visit(bb);
     preprocessing = false;
 }
 void CodeGen::RegFlowAnalysis(Function* func){
@@ -461,19 +460,18 @@ void CodeGen::RegFlowAnalysis(Function* func){
         //initialize
         OffsetDesc.clear();
         RegDesc.clear();
+        saved_regs.clear();
         offset = -16;
         max_arg_size = 0;
         stored.clear();
         LoadArgs(func);
         cur_func = func;
-        // update RegDesc
-        RegDescUpdate(func);
         for(auto& BB:func->get_basic_blocks()){
             BasicBlock* bb = &BB;
             std::map<Value*, Reg*> tmpRegDesc = InitRegDesc[bb];
             if(bb!=func->get_entry_block())InitRegDesc[bb].clear();
             size_t pre_bb_num = bb->get_pre_basic_blocks().size();
-            if(pre_bb_num == 0) continue;
+            if(pre_bb_num == 0) ;
             else if(pre_bb_num == 1){
                 auto suc_bb = *bb->get_pre_basic_blocks().begin();
                 InitRegDesc[bb] = RegDesc[suc_bb];
@@ -487,6 +485,8 @@ void CodeGen::RegFlowAnalysis(Function* func){
             }
             else assert(false);
             if(tmpRegDesc != InitRegDesc[bb])changed = true;
+            // update RegDesc
+            RegDescUpdate(bb);
         }
     }
 }
@@ -552,6 +552,7 @@ int CodeGen::LoadArgs(Function* func){
     }
 }
 inline void CodeGen::gen_code(string assem){
+    // std::cout<<assem<<std::endl;
     if(!preprocessing)cfg.push_back(assem, cur_bb);
 }
 inline void CodeGen::gen_code(vector<string>& assem){
@@ -585,11 +586,12 @@ void CodeGen::run() {
             // calculate the memory used by the function
             offset -= max_arg_size;
             int bytes = -offset + (offset%16?16+offset%16:0);
+            bytes += saved_regs.size() * 16;
             if(bytes!=16)memory_used = true;
             // initialize
             func_init(&func);
             // load arguments
-            int off = LoadArgs(&func);
+            LoadArgs(&func);
             // entry
             output.push_back(".globl " + func.get_name());
             output.push_back(".type " + func.get_name() + ", @function");
@@ -603,12 +605,18 @@ void CodeGen::run() {
             func_entry.push_back("st.d $ra, $sp, " + std::to_string(bytes-8));
             func_entry.push_back("st.d $fp, $sp, " + std::to_string(bytes-16));
             func_entry.push_back("addi.d $fp, $sp, " + std::to_string(bytes));
+            // sr_save
+            for(int i=0;i<saved_regs.size();i++)
+            func_entry.push_back("st.d " + R[i+23].print() + ", $sp, " + std::to_string(i*16));
             // body
             for(auto& bb : func.get_basic_blocks()){
                 visit(&bb);
             }
             // return
             func_exit.push_back("." + func.get_name() +"_return :");
+            // sr_load
+            for(int i=0;i<saved_regs.size();i++)
+            func_exit.push_back("ld.d " + R[i+23].print() + ", $sp, " + std::to_string(i*16));
             func_exit.push_back("ld.d $ra, $sp, " + std::to_string(bytes-8));
             func_exit.push_back("ld.d $fp, $sp, " + std::to_string(bytes-16));
             func_exit.push_back("addi.d $sp, $sp, " + std::to_string(bytes));
@@ -707,7 +715,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
         }
     }
     // integer register
-    for(int i=4;i<=20;i++){
+    for(int i=4;i<=31;i++){
         if(is_active(R[i].value, bb)&&!is_inerited(R[i].value, bb)){
             int off;
             if(is_stored(R[i].value))
@@ -720,6 +728,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             else gen_code("st.d " + R[i].print() + ", $fp, " + std::to_string(off));
             SetOff(R[i].value, off);
         }
+        if(i==20)i=22;
     }
     // float register
     for(int i=0;i<=23;i++){
@@ -1077,7 +1086,7 @@ void CodeGen::phi_assembly(Instruction* instr){
     UpdateReg(reg, instr);
 }
 void CodeGen::call_assembly(Instruction* instr){
-    // first store the value of temporary registers and arguments registers
+    // first store the value of temporary registers and move arguments registers
     call_used = true;
     if(inline_func.find(instr->get_operand(0))!=inline_func.end()){
         vector<Value*> real_args;
@@ -1091,10 +1100,22 @@ void CodeGen::call_assembly(Instruction* instr){
             return;
         }
     }
-    for(int i=4;i<=20;i++){
+    // store the value of temporary registers
+    for(int i=12;i<=20;i++){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
             int off;
-            if(!HasOff(R[i].value))
+            if(!is_stored(R[i].value))
+                off = offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
+            else off = CurOff(R[i].value);
+            SetOff(R[i].value, off);
+            stored[R[i].value] = true;
+            gen_code("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
+        }
+    }
+    for(int i=23;i<=31;i++){
+        if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
+            int off;
+            if(!is_stored(R[i].value))
                 off = offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
             else off = CurOff(R[i].value);
             SetOff(R[i].value, off);
@@ -1105,12 +1126,20 @@ void CodeGen::call_assembly(Instruction* instr){
     for(int i=0;i<=23;i++){
         if(is_active_out(FR[i].value, instr)&&!is_stored(FR[i].value)){
             int off;
-            if(!HasOff(R[i].value))
+            if(!is_stored(R[i].value))
                 off = offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
             else off = CurOff(R[i].value);
             SetOff(FR[i].value, off);
             stored[R[i].value] = true;
             gen_code("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
+        }
+    }
+    // move arguments registers
+    int num=23;
+    for(int i=4;i<=11;i++){
+        if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
+            gen_code("or " + R[num].print() + ", " + R[i].print() + ", $zero");
+            UpdateReg(&R[num++], R[i].value, false);
         }
     }
     // second load the arguments (if the number of arguments is more than 8)store the extra arguments in the memory
@@ -1135,14 +1164,9 @@ void CodeGen::call_assembly(Instruction* instr){
             }   
         else if(i++<8){// 寄存器传参
                 auto s_reg = GetReg(arg);
-                if(!is_active_out(R[i+3].value, instr)&&is_active(R[i+3].value, instr)&&&R[i+3]!=s_reg){//the value of the current reg is the argument 
-                    offset -= R[i+3].value->get_type()->get_size()+offset%R[i+3].value->get_type()->get_size();
-                    SetOff(R[i+3].value, offset);
-                    gen_code("st.w " + R[i+3].print() + ", $fp, " + std::to_string(offset));
-                }
                 if(&R[i+3]!=s_reg)
                     gen_code("or " + R[i+3].print() + ", " + s_reg->print() + ", $zero");
-                UpdateReg(&R[i+3], arg);
+                UpdateReg(&R[i+3], arg, false);
             }
         else{   //  堆栈传参
             gen_code("st.w " + GetReg(arg)->print() + ", $sp, " + std::to_string(off));
@@ -1346,16 +1370,16 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
 
 }
 Reg* CodeGen::AllocaReg(Value* v){
+    Reg* reg;
     if(v->get_type()->is_float_type()){
-        auto reg = LinearScanFR();
-        locked_regs.insert(reg);
-        return reg;
+        reg = LinearScanFR();
     }
     else {
-        auto reg = LinearScanR();
-        locked_regs.insert(reg);
-        return reg;
+        reg = LinearScanR();
+        if(reg->id>=23)saved_regs.insert(reg);
     }
+    locked_regs.insert(reg);
+    return reg;
 }
 Reg* CodeGen::AllocaTmpReg(){
     for(int i=4;i<=20;i++)
@@ -1372,7 +1396,11 @@ Reg* CodeGen::AllocaTmpFReg(){
 Reg* LinearScanR(){
     for(int i=4;i<=20;i++)
         if(!is_active(R[i].value, point)&&locked_regs.find(&R[i])==locked_regs.end())return &R[i];
+    for(int i=23;i<=31;i++)
+        if(!is_active(R[i].value, point)&&locked_regs.find(&R[i])==locked_regs.end())return &R[i];
     for(int i=4;i<=20;i++)
+        if(locked_regs.find(&R[i])==locked_regs.end())return &R[i];
+    for(int i=23;i<=31;i++)
         if(locked_regs.find(&R[i])==locked_regs.end())return &R[i];
 }
 Reg* LinearScanFR(){
@@ -1389,9 +1417,10 @@ Reg* RandomFReg(){
     next_freg = (next_freg+1)%16;
     return &FR[next_freg+8];
 }
-void UpdateReg(Reg* r, Value* val){
+void UpdateReg(Reg* r, Value* val, bool set_null){
+    if (r->id>=23)saved_regs.insert(r);
     if (val) locked_regs.insert(r); 
-    if (is_in_reg(val)) CurReg(val)->value = nullptr;
+    if (is_in_reg(val)&&set_null) CurReg(val)->value = nullptr;
     if (r->value!=nullptr) SetReg(r->value, nullptr);
     r->value = val;
     if (val) SetReg(val, r);
