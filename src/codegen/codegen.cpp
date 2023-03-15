@@ -28,11 +28,6 @@ std::map<BasicBlock*, std::map<Value*, Reg*>> RegDesc;
 std::map<Value*, int> OffsetDesc;
 //Offset Optimization
 std::map<Value*, int> LocalOff;
-//GlobalValue Optimization
-namespace gv_opt{
-    std::map<Value*, int> mem_int;
-    std::map<Value*, float> mem_float;
-}
 //Constant Optimization
 const bool const_optim_flag=true;
 namespace const_opt{
@@ -211,19 +206,6 @@ void ActiveVars(Function *func){// 根据函数返回对应OUT
             }
         }
     }
-    // for(auto &bb : func->get_basic_blocks()){
-    //     std::cout<<bb.get_name()<<std::endl;
-    //     for(auto &ins : bb.get_instructions()){
-    //         auto cur_inst = &ins;
-    //         std::cout<<cur_inst->get_name()<<":\n[";
-    //         for(auto val : in[cur_inst])
-    //         if(dynamic_cast<ConstantInt*>(val))std::cout<<dynamic_cast<ConstantInt*>(val)->get_value()<<",";
-    //         else if(dynamic_cast<ConstantFP*>(val))std::cout<<dynamic_cast<ConstantFP*>(val)->get_value()<<",";
-    //         else std::cout<<val->get_name()<<", ";
-    //         std::cout<<"]"<<std::endl;
-    //     }
-    // }
-    // std::cout<<std::endl;
 }
 
 // Short Function Optimization
@@ -432,7 +414,6 @@ void CodeGen::CFopt(Function* func){
         }
         func_body->insert(func_body->end(), cfg[bb].begin(),cfg[bb].end());
     }
-    if(!(memory_used||call_used)&&func_body->size()<=10)short_func[cur_func]=func_body;
     if(!(memory_used||call_used))inline_func[cur_func]=std::make_shared<InlineFunc>(cur_func);
     if(memory_used||call_used)output.insert(output.end(), func_entry.begin(), func_entry.end());
     output.insert(output.end(), func_body->begin(), func_body->end());
@@ -695,7 +676,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                 else {
                     point = &inst;
                     if(!is_stored(&inst)){
-                        offset -= inst.get_type()->get_size()+offset%inst.get_type()->get_size();
+                        offset -= 2*inst.get_type()->get_size()+offset%inst.get_type()->get_size();
                         SetOff(&inst, offset);
                     }
                     int off = CurOff(&inst);
@@ -724,7 +705,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             if(is_stored(R[i].value))
                 continue;
             else{
-                offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
+                offset -= 2*R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
                 off = offset;
             } 
             if(R[i].value->get_type()->is_integer_type())gen_code("st.w " + R[i].print() + ", $fp, " + std::to_string(off));
@@ -740,7 +721,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
             if(is_stored(FR[i].value))
                 continue;
             else{
-                offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
+                offset -= 2*FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
                 off = offset;
             } 
             gen_code("fst.s " + FR[i].print() + ", $fp, " + std::to_string(off));
@@ -1108,7 +1089,7 @@ void CodeGen::call_assembly(Instruction* instr){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
             int off;
             if(!is_stored(R[i].value))
-                off = offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
+                off = offset -= 2*R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
             else off = CurOff(R[i].value);
             SetOff(R[i].value, off);
             stored[R[i].value] = true;
@@ -1119,7 +1100,7 @@ void CodeGen::call_assembly(Instruction* instr){
         if(is_active_out(R[i].value, instr)&&!is_stored(R[i].value)){
             int off;
             if(!is_stored(R[i].value))
-                off = offset -= R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
+                off = offset -= 2*R[i].value->get_type()->get_size()+offset%R[i].value->get_type()->get_size();
             else off = CurOff(R[i].value);
             SetOff(R[i].value, off);
             stored[R[i].value] = true;
@@ -1130,7 +1111,7 @@ void CodeGen::call_assembly(Instruction* instr){
         if(is_active_out(FR[i].value, instr)&&!is_stored(FR[i].value)){
             int off;
             if(!is_stored(R[i].value))
-                off = offset -= FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
+                off = offset -= 2*FR[i].value->get_type()->get_size()+offset%FR[i].value->get_type()->get_size();
             else off = CurOff(R[i].value);
             SetOff(FR[i].value, off);
             stored[R[i].value] = true;
@@ -1153,7 +1134,7 @@ void CodeGen::call_assembly(Instruction* instr){
             if(j++<8){// 寄存器传参
                 auto s_reg = GetReg(arg);
                 if(!is_active_out(FR[j-1].value, instr)&&is_active(FR[j-1].value, instr)&&&FR[j-1]!=s_reg){//the value of the current reg is the argument 
-                    offset -= FR[j-1].value->get_type()->get_size()+offset%FR[j-1].value->get_type()->get_size();
+                    offset -= 2*FR[j-1].value->get_type()->get_size()+offset%FR[j-1].value->get_type()->get_size();
                     SetOff(FR[j-1].value, offset);
                     gen_code("fst.s " + FR[j-1].print() + ", $fp, " + std::to_string(offset));
                 }
