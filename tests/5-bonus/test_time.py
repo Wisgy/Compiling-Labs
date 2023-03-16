@@ -6,10 +6,11 @@ import argparse
 import subprocess
 
 test_dir = os.path.dirname(os.path.abspath(__file__))  # 当前文件夹路径 tests/5-bonus
-cminus = os.path.join(test_dir, '../../build/cminusfc')  # ===可修改===
+cminus = os.path.join(test_dir, './cminusfc')  # ===可修改===
 testfile_dir = os.path.join(test_dir, './testcases')
+target_dir = os.path.join(test_dir, './cases')
 output_file_name = os.path.join(test_dir, './test_result')
-io = os.path.join(test_dir, '../../src/io/io.c')
+io = os.path.join(test_dir, './io.c')
 
 total_failed_count = 0
 
@@ -39,10 +40,10 @@ def eval(console=False, test_dir=testfile_dir, use_clang=False):
 
     single_begin = timeit.default_timer()
 
-    testfiles = os.listdir(testfile_dir)
+    testfiles = os.listdir(target_dir)
     testfiles.sort()
     # 过滤出以.cminus结尾的file
-    testfiles = filter(lambda s: s.endswith('.cminus'), testfiles)
+    # testfiles = filter(lambda s: s.endswith('.cminus'), testfiles)
     testfiles = list(testfiles)
 
     test_count = len(testfiles)
@@ -66,23 +67,23 @@ def eval(console=False, test_dir=testfile_dir, use_clang=False):
         ### 编译 ###
         if not use_clang:
             name = filepath.split('/')[-1][:-6] + 's'
-            try:
-                # ===可修改===
-                compile_res = subprocess.run([cminus, filepath, '-mem2reg', '-S', '-o ../../' + name ],
-                                             stdout=subprocess.PIPE,
-                                             stderr=subprocess.PIPE,
-                                             timeout=300)
-            except subprocess.TimeoutExpired as _:
-                output_file.write('compile-1 timeout\n')
-                failed_count += 1
-                continue
-            except Exception:
-                output_file.write("compile-1 failed with an unexcept error\n")
-                failed_count += 1
-                continue
+            # try:
+            #     # ===可修改===
+            #     compile_res = subprocess.run([cminus, filepath, '-mem2reg', '-S', '-o a'],
+            #                                  stdout=subprocess.PIPE,
+            #                                  stderr=subprocess.PIPE,
+            #                                  timeout=300)
+            # except subprocess.TimeoutExpired as _:
+            #     output_file.write('compile-1 timeout\n')
+            #     failed_count += 1
+            #     continue
+            # except Exception:
+            #     output_file.write("compile-1 failed with an unexcept error\n")
+            #     failed_count += 1
+            #     continue
 
             try:
-                compile_res = subprocess.run(['gcc', 'a.s', io, '-o', 'a.out'],
+                compile_res = subprocess.run(['gcc','./cases/' + file_name, io, '-o', 'a.out'],
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              timeout=300)
