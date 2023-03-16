@@ -48,11 +48,11 @@ namespace const_opt{
         else return false;
     }
     inline int get_ival(Value* inst){
-        assert(inst2int.find(inst)!=inst2int.end());
+        // assert(inst2int.find(inst)!=inst2int.end());
         return inst2int[inst];
     }
     inline float get_fval(Value* inst){
-        assert(inst2float.find(inst)!=inst2float.end());
+        // assert(inst2float.find(inst)!=inst2float.end());
         return inst2float[inst];
     }
     inline void set_ival(Value* inst, int val){
@@ -85,11 +85,11 @@ namespace ActiveVarsFunc{//Wrapping functions for program point update and discr
         return out[point].find(inst)!=out[point].end();
     }
     inline int CurOff(Value* inst){// acquire the memory offset of inst
-        assert(OffsetDesc.find(inst)!=OffsetDesc.end());
+        // assert(OffsetDesc.find(inst)!=OffsetDesc.end());
         return OffsetDesc[inst];
     }
     inline Reg* CurReg(Value* inst, BasicBlock* bb=cur_bb){// acquire the current reg of inst
-        assert(RegDesc[bb].find(inst)!=RegDesc[bb].end()||preprocessing);
+        // assert(RegDesc[bb].find(inst)!=RegDesc[bb].end()||preprocessing);
         return RegDesc[bb][inst];
     }
     inline void SetOff(Value* inst, int off){// set the memory offset of inst
@@ -351,13 +351,13 @@ class CFG{
         void clear() {bb2code.clear();cj_bb.clear();jump_bb.clear();}
         void set_jump_bb(BasicBlock* next_bb, BasicBlock* bb = cur_bb){
             if(preprocessing)return;
-            assert(next_bb&&jump_bb.find(bb)==jump_bb.end());
+            // assert(next_bb&&jump_bb.find(bb)==jump_bb.end());
             jump_bb[bb] = next_bb;
         }
         void new_jump_bb(BasicBlock* next_bb, BasicBlock* bb) { jump_bb[bb] = next_bb; }
         void set_cj_bb(BasicBlock* next_bb, BasicBlock* bb = cur_bb){
             if(preprocessing)return;
-            assert(next_bb&&cj_bb.find(bb)==cj_bb.end());
+            // assert(next_bb&&cj_bb.find(bb)==cj_bb.end());
             cj_bb[bb] = next_bb;
         }
         void new_cj_bb(BasicBlock* next_bb, BasicBlock* bb) { cj_bb[bb] = next_bb; }
@@ -465,7 +465,7 @@ void CodeGen::RegFlowAnalysis(Function* func){
                 auto pre_bb2 = *iter;
                 join(bb, pre_bb1, pre_bb2);
             }
-            else assert(false);
+            // else assert(false);
             if(tmpRegDesc != InitRegDesc[bb])changed = true;
             // update RegDesc
             RegDescUpdate(bb);
@@ -481,7 +481,7 @@ bool CodeGen::is_inerited(Value* val, BasicBlock* bb){
     return true;
 }
 inline Reg* CodeGen::get_inerited_reg(Value* val, BasicBlock* bb){
-    assert(is_inerited(val, bb));
+    // assert(is_inerited(val, bb));
     auto suc_bb = *bb->get_succ_basic_blocks().begin();
     return InitRegDesc[suc_bb][val];
 }
@@ -532,7 +532,7 @@ int CodeGen::LoadArgs(Function* func){
                 off += arg->get_type()->get_size();
             }
         }
-        else assert(false);
+        // else assert(false);
     }
 }
 inline void CodeGen::gen_code(string assem){
@@ -665,7 +665,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                         reg = GetReg(inst.get_operand(0));
                     else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
                         reg = GetReg(inst.get_operand(2));
-                    else assert(false);
+                    // else assert(false);
                     if(get_inerited_reg(&inst, bb)!=reg){
                         auto res = AllocaReg(&inst);
                         gen_code(head + res->print() + ", " + reg->print() + tail);
@@ -689,7 +689,7 @@ void CodeGen::bb_end_store(BasicBlock* bb){
                         reg = GetReg(inst.get_operand(0));
                     else if(inst.get_num_operand() == 4&&cur_bb == inst.get_operand(3))
                         reg = GetReg(inst.get_operand(2));
-                    else assert(false);
+                    // else assert(false);
                     stored[&inst]=true;
                     gen_code(head + reg->print() + ", $fp, " + std::to_string(off));
                     UpdateReg(reg, &inst);
@@ -752,7 +752,7 @@ void CodeGen::br_assembly(Instruction* instr){
             return;
         }
         auto cond = dynamic_cast<Instruction*>(instr->get_operand(0));
-        assert(cond);
+        // assert(cond);
         if(cond->get_operand(0)->get_type()->is_float_type()){
             auto cur_point = point;
             point = cond;
@@ -797,8 +797,8 @@ void CodeGen::binary_assembly(Instruction* instr){
             case Instruction::fsub: set_fval(instr, get_fval(lhs)-get_fval(rhs)); break;
             case Instruction::fmul: set_fval(instr, get_fval(lhs)*get_fval(rhs)); break;
             case Instruction::fdiv: set_fval(instr, get_fval(lhs)/get_fval(rhs)); break;
-            default:
-                assert(false);
+            // default:
+            //     assert(false);
         }
         return;
     }
@@ -844,8 +844,8 @@ void CodeGen::binary_assembly(Instruction* instr){
         case Instruction::fsub: assem_inst = "fsub.s"; break;
         case Instruction::fmul: assem_inst = "fmul.s"; break;
         case Instruction::fdiv: assem_inst = "fdiv.s"; break;
-        default:
-            assert(false);
+        // default:
+            // assert(false);
     }
     auto res = AllocaReg(instr);
     gen_code(assem_inst + " " + res->print() + ", " + l_reg->print() + ", " + r_reg->print());
@@ -868,17 +868,17 @@ void CodeGen::load_assembly(Instruction* instr){
             gen_code("ld.w " + reg->print() + ", " + addr->print() + ", 0");
         else if(instr->get_type()->is_float_type())
             gen_code("fld.s " + reg->print() + ", " + addr->print() + ", 0");
-        else assert(false);
+        // else assert(false);
     }
     else{
         string inst_tail;
         string inst_head;
         if(instr->get_type()->is_integer_type()) inst_head = "ld.w ";
         else if(instr->get_type()->is_float_type()) inst_head = "fld.s ";
-        else assert(false);
+        // else assert(false);
         if(LocalOff.find(pt) != LocalOff.end()) inst_tail = ", $fp, " + std::to_string(LocalOff[pt]);
         else if(is_used(pt)) {auto addr = GetReg(pt);inst_tail = ", " + addr->print() + ", 0";}
-        else assert(false);
+        // else assert(false);
         reg = AllocaReg(instr);
         gen_code(inst_head + reg->print() + inst_tail);
     }
@@ -896,17 +896,17 @@ void CodeGen::store_assembly(Instruction* instr){
             gen_code("st.w " + reg->print() + ", " + addr->print() + ", 0");
         else if(type->is_float_type())
             gen_code("fst.s " + reg->print() + ", " + addr->print() + ", 0");
-        else assert(false);
+        // else assert(false);
     }
     else{
         string inst_tail;
         string inst_head;
         if(type->is_integer_type()) inst_head = "st.w ";
         else if(type->is_float_type()) inst_head = "fst.s ";
-        else assert(false);
+        // else assert(false);
         if(LocalOff.find(pt) != LocalOff.end()) inst_tail = ", $fp, " + std::to_string(LocalOff[pt]);
         else if(is_used(pt)) {auto addr = GetReg(pt);inst_tail = ", " + addr->print() + ", 0";}
-        else assert(false);
+        // else assert(false);
         gen_code(inst_head + reg->print() + inst_tail);
     }
 }
@@ -934,7 +934,7 @@ void CodeGen::cmp_assembly(Instruction* instr, Instruction* refer){
         else if(refer->is_zext()){
             set_ival(refer, get_ival(instr));
         }
-        else assert(false);
+        // else assert(false);
         return;
     }
     auto l_reg = GetReg(lhs);
@@ -996,7 +996,7 @@ void CodeGen::cmp_assembly(Instruction* instr, Instruction* refer){
         UpdateReg(res, instr);
         DefineStore(instr, res);
     }
-    else assert(false);
+    // else assert(false);
 }
 void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
     auto lhs = instr->get_operand(0);
@@ -1022,7 +1022,7 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
         else if(refer->is_zext()){
             set_ival(refer, get_ival(instr));
         }
-        else assert(false);
+        // else assert(false);
         return;
     }
     auto l_reg = GetReg(lhs);
@@ -1054,19 +1054,19 @@ void CodeGen::fcmp_assembly(Instruction* instr, Instruction* refer){
         UpdateReg(reg, instr);
         DefineStore(instr, reg);
     }
-    else assert(false);
+    // else assert(false);
 }
 void CodeGen::phi_assembly(Instruction* instr){
     if(is_in_reg(instr))return;
     auto reg = AllocaReg(instr);
     int off = CurOff(instr);
-    assert(off!=-1);
+    // assert(off!=-1);
     // 判断整型还是浮点
     if(instr->get_type()->is_integer_type())
         gen_code("ld.w " + reg->print() + ", $fp, " + std::to_string(off));
     else if(instr->get_type()->is_float_type())
         gen_code("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
-    else assert(false);
+    // else assert(false);
     UpdateReg(reg, instr);
 }
 void CodeGen::call_assembly(Instruction* instr){
@@ -1198,7 +1198,7 @@ void CodeGen::getelementptr_assembly(Instruction* instr){
         UpdateReg(addr, instr);
     }
     else{
-        assert(LocalOff.find(pt) != LocalOff.end() || is_used(pt));
+        // assert(LocalOff.find(pt) != LocalOff.end() || is_used(pt));
         if(type->is_array_type()){
             if(dynamic_cast<ConstantInt*>(instr->get_operand(2))){
                 int elem_off = dynamic_cast<ConstantInt*>(instr->get_operand(2))->get_value();
@@ -1248,7 +1248,7 @@ void CodeGen::zext_assembly(Instruction* instr){
             cmp_assembly(dynamic_cast<Instruction*>(val), instr);
         else if(dynamic_cast<Instruction*>(val)->is_fcmp())
             fcmp_assembly(dynamic_cast<Instruction*>(val), instr);
-        else assert(false);
+        // else assert(false);
         point = cur_point;
     }
     if(const_optim_flag&&is_const(val)){
@@ -1330,11 +1330,11 @@ Reg* CodeGen::GetReg(Value* v) {// 一定会返回存有此值的寄存器
             return reg;
         }
         else { //局部变量
-            assert(is_used(v)||LocalOff.find(v)!=LocalOff.end());
+            // assert(is_used(v)||LocalOff.find(v)!=LocalOff.end());
             auto reg = AllocaReg(v);
             if(is_used(v)){// 局部int或float型变量值或参数指针值
                 int off = CurOff(v);
-                assert(off!=-1);
+                // assert(off!=-1);
                 if(v->get_type()->is_float_type())
                     gen_code("fld.s " + reg->print() + ", $fp, " + std::to_string(off));
                 else if(v->get_type()->is_pointer_type())

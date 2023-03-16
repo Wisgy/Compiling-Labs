@@ -50,16 +50,16 @@ def eval(console=False, test_dir=testfile_dir, use_clang=False):
     testtime = []
 
     for count, file_name in enumerate(testfiles):
-        # start_time = timeit.default_timer()
+        start_time = timeit.default_timer()
 
-        # testtime.append(-1)
+        testtime.append(-1)
 
-        # # 超时，跳过
-        # if start_time - total_start > 30 * 60 or start_time - single_begin > 30 * 60:
-        #     output_file.write(f"[{count+1}/{test_count}] " + file_name + ': skipped due to exceeded total time limit\n')
-        #     continue
-        # # 未超时
-        # output_file.write(f"[{count+1}/{test_count}] " + file_name + ': ')
+        # 超时，跳过
+        if start_time - total_start > 30 * 60 or start_time - single_begin > 30 * 60:
+            output_file.write(f"[{count+1}/{test_count}] " + file_name + ': skipped due to exceeded total time limit\n')
+            continue
+        # 未超时
+        output_file.write(f"[{count+1}/{test_count}] " + file_name + ': ')
         filepath = os.path.join(testfile_dir, file_name)
         outpath = os.path.join(testfile_dir, file_name[:-7] + '.out')
 
@@ -81,101 +81,101 @@ def eval(console=False, test_dir=testfile_dir, use_clang=False):
                 failed_count += 1
                 continue
 
-    #         try:
-    #             compile_res = subprocess.run(['gcc', 'a.s', io, '-o', 'a.out'],
-    #                                          stdout=subprocess.PIPE,
-    #                                          stderr=subprocess.PIPE,
-    #                                          timeout=300)
-    #         except subprocess.TimeoutExpired as _:
-    #             output_file.write('compile-2 timeout\n')
-    #             failed_count += 1
-    #             continue
-    #         except Exception:
-    #             output_file.write("compile-2 failed with an unexcept error\n")
-    #             failed_count += 1
-    #             continue
+            try:
+                compile_res = subprocess.run(['gcc', 'a.s', io, '-o', 'a.out'],
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             timeout=300)
+            except subprocess.TimeoutExpired as _:
+                output_file.write('compile-2 timeout\n')
+                failed_count += 1
+                continue
+            except Exception:
+                output_file.write("compile-2 failed with an unexcept error\n")
+                failed_count += 1
+                continue
 
-    #     else:
-    #         try:
-    #             cfilepath = filepath.replace(".cminus", ".c")
-    #             shutil.move(filepath, cfilepath)
-    #             compile_res = subprocess.run(["clang", cfilepath, io, "-o", "a.out"],
-    #                                          stdout=subprocess.PIPE,
-    #                                          stderr=subprocess.PIPE,
-    #                                          timeout=300)
-    #             shutil.move(cfilepath, filepath)
-    #         except subprocess.TimeoutExpired as _:
-    #             output_file.write('compile timeout\n')
-    #             failed_count += 1
-    #             continue
-    #         except Exception:
-    #             output_file.write("compile failed with an unexcept error\n")
-    #             failed_count += 1
-    #             continue
+        else:
+            try:
+                cfilepath = filepath.replace(".cminus", ".c")
+                shutil.move(filepath, cfilepath)
+                compile_res = subprocess.run(["clang", cfilepath, io, "-o", "a.out"],
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             timeout=300)
+                shutil.move(cfilepath, filepath)
+            except subprocess.TimeoutExpired as _:
+                output_file.write('compile timeout\n')
+                failed_count += 1
+                continue
+            except Exception:
+                output_file.write("compile failed with an unexcept error\n")
+                failed_count += 1
+                continue
 
-    #     ### 运行 ###
-    #     try:
-    #         input_option = None
-    #         inpath = os.path.join(testfile_dir, file_name[:-7] + '.in')
+        ### 运行 ###
+        try:
+            input_option = None
+            inpath = os.path.join(testfile_dir, file_name[:-7] + '.in')
 
-    #         if os.path.exists(inpath):  # testfile存在输入文件
-    #             with open(inpath, 'rb') as fin:
-    #                 input_option = fin.read()
+            if os.path.exists(inpath):  # testfile存在输入文件
+                with open(inpath, 'rb') as fin:
+                    input_option = fin.read()
 
-    #         # 记录运行时间
-    #         start = timeit.default_timer()
-    #         for i in range(10):
-    #             exe_res = subprocess.run(['./a.out'],
-    #                                      input=input_option,
-    #                                      stdout=subprocess.PIPE,
-    #                                      stderr=subprocess.PIPE,
-    #                                      timeout=100)
-    #         end = timeit.default_timer()
+            # 记录运行时间
+            start = timeit.default_timer()
+            for i in range(10):
+                exe_res = subprocess.run(['./a.out'],
+                                         input=input_option,
+                                         stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE,
+                                         timeout=100)
+            end = timeit.default_timer()
 
-    #     except subprocess.TimeoutExpired:
-    #         output_file.write("executable time limit exceeded\n")
-    #         failed_count += 1
-    #         continue
-    #     except Exception as _:
-    #         output_file.write('executable runtime error\n')
-    #         failed_count += 1
-    #         continue
+        except subprocess.TimeoutExpired:
+            output_file.write("executable time limit exceeded\n")
+            failed_count += 1
+            continue
+        except Exception as _:
+            output_file.write('executable runtime error\n')
+            failed_count += 1
+            continue
 
-    #     # 输出
-    #     with open(outpath, 'r') as fout:
-    #         ref = fout.read().replace(' ', '').replace('\n', '')
+        # 输出
+        with open(outpath, 'r') as fout:
+            ref = fout.read().replace(' ', '').replace('\n', '')
 
-    #         try:
-    #             actual = exe_res.stdout.decode('utf-8').replace(' ', '').replace('\n', '').replace('\r', '') + str(
-    #                 exe_res.returncode)
-    #         except UnicodeDecodeError:
-    #             output_file.write('executable output illegal characters\n')
-    #             failed_count += 1
-    #             continue
+            try:
+                actual = exe_res.stdout.decode('utf-8').replace(' ', '').replace('\n', '').replace('\r', '') + str(
+                    exe_res.returncode)
+            except UnicodeDecodeError:
+                output_file.write('executable output illegal characters\n')
+                failed_count += 1
+                continue
 
-    #         if ref == actual or use_clang:
-    #             time = (end - start) / 10
-    #             total_time += time
-    #             output_file.write(f'pass, costs {time:.6f}s\n')
-    #             succ_count += 1
-    #             testtime[count] = time
-    #         else:
-    #             output_file.write('output is different from standard answer, this may be caused by wrong return code\n'
-    #                               )  # 因为退出码也会作为输出的一部分，因此输出和答案不同可能是程序崩溃造成的
-    #             failed_count += 1
+            if ref == actual or use_clang:
+                time = (end - start) / 10
+                total_time += time
+                output_file.write(f'pass, costs {time:.6f}s\n')
+                succ_count += 1
+                testtime[count] = time
+            else:
+                output_file.write('output is different from standard answer, this may be caused by wrong return code\n'
+                                  )  # 因为退出码也会作为输出的一部分，因此输出和答案不同可能是程序崩溃造成的
+                failed_count += 1
 
-    # output_file.write(f"{failed_count} tests failed\n")
-    # output_file.write(
-    #     f"total time is {total_time}s\navg time is {total_time/succ_count if succ_count>0 else 0}s\n{succ_count} tests finishes in time limit\n"
-    # )
+    output_file.write(f"{failed_count} tests failed\n")
+    output_file.write(
+        f"total time is {total_time}s\navg time is {total_time/succ_count if succ_count>0 else 0}s\n{succ_count} tests finishes in time limit\n"
+    )
 
-    # output_file.write('testcase')
-    # output_file.write('\t\t\tyour_cminus')
-    # for count, file_name in enumerate(testfiles):
-    #     output_file.write('{:<20}'.format(file_name))
-    #     output_file.write('\t\t %.6f' % testtime[count] if testtime[count] != -1 else '\t\t  None  ')
+    output_file.write('testcase')
+    output_file.write('\t\t\tyour_cminus')
+    for count, file_name in enumerate(testfiles):
+        output_file.write('{:<20}'.format(file_name))
+        output_file.write('\t\t %.6f' % testtime[count] if testtime[count] != -1 else '\t\t  None  ')
 
-    # output_file.write("===================================================================\n")
+    output_file.write("===================================================================\n")
 
 
 if __name__ == "__main__":
